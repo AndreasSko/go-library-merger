@@ -4,7 +4,7 @@ go 1.24
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.2
-	github.com/DATA-DOG/go-sqlmock v1.5.0
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/MakeNowJust/heredoc v1.0.0
 	github.com/Netflix/go-expect v0.0.0-20210722184520-ef0bf57d82b3
 	github.com/buger/goterm v1.0.1

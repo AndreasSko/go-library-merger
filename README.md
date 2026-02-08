@@ -58,9 +58,30 @@ accidentally overwriting entries.
 
 ### Compare two backups
 To quickly compare two backup files and check if their content is equal,
-you can use the `go-jwlm compare <left-backup> <right-backup>` command. 
-This one is mainly used for validation, but might be helpful in other 
+you can use the `go-jwlm compare <left-backup> <right-backup>` command.
+This one is mainly used for validation, but might be helpful in other
 situations :)
+
+### Detect and remove duplicate notes
+If you have duplicate notes in your backup, you can use the duplicate detection
+and removal commands:
+
+**Detect duplicates:**
+```shell
+go-jwlm detect-duplicates <backup-file>
+```
+
+This command scans your backup file and displays all groups of duplicate notes.
+Notes are considered duplicates if they have identical title and content.
+
+**Remove duplicates:**
+```shell
+go-jwlm remove-duplicates <backup-file> <output-file>
+```
+
+This command identifies duplicate notes and lets you interactively choose which
+note to keep from each group of duplicates. The cleaned backup is saved to the
+output file.
 
 ## Installation 
 You can find the compiled binaries for Windows, Linux, and Mac under the

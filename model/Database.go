@@ -612,6 +612,11 @@ func (db *Database) ExportJWLBackup(filename string) error {
 		return errors.Wrap(err, "Could not create SQLite database for exporting")
 	}
 
+	// VACUUM to defragment and optimize the database file
+	if err := vacuumDatabase(dbPath); err != nil {
+		return errors.Wrap(err, "Could not vacuum SQLite database")
+	}
+
 	// Create manifest.json
 	manifestPath := filepath.Join(tmp, manifestFilename)
 	mfst, err := generateManifest("go-jwlm", dbPath)
@@ -649,6 +654,14 @@ func (db *Database) saveToNewSQLite(filename string) error {
 	}
 	defer sqlite.Close()
 
+	// Set journal mode to DELETE for compatibility (matches JW Library backups)
+	// Note: page_size is already 4096 in the embedded database template
+	// Note: auto_vacuum is intentionally left as NONE (0) to match JW Library backups
+	//       and avoid overhead pages that reduce compressibility
+	if _, err := sqlite.Exec("PRAGMA journal_mode = DELETE"); err != nil {
+		log.Debugf("Warning: Failed to set journal_mode: %v", err)
+	}
+
 	// For every field of the Database{} struct, create a []model slice
 	// and use it to insert its entries to the new SQLite DB
 	dbFields := reflect.ValueOf(db).Elem()
@@ -666,7 +679,19 @@ func (db *Database) saveToNewSQLite(filename string) error {
 		}
 	}
 
-	// Vacuum to clean up SQLite DB
+	return nil
+}
+
+// vacuumDatabase performs a VACUUM on the SQLite database file to defragment
+// and optimize it. This is called separately after saveToNewSQLite to allow
+// testing with and without VACUUM.
+func vacuumDatabase(filename string) error {
+	sqlite, err := sql.Open("sqlite3", filename)
+	if err != nil {
+		return errors.Wrap(err, "Error while opening SQLite database for VACUUM")
+	}
+	defer sqlite.Close()
+
 	_, err = sqlite.Exec("VACUUM")
 	if err != nil {
 		return errors.Wrap(err, "Error while vacuuming SQLite DB")

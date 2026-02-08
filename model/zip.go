@@ -1,11 +1,11 @@
 package model
 
 import (
+	"archive/zip"
+	stdflate "compress/flate"
 	"io"
 	"os"
 	"path/filepath"
-
-	"github.com/klauspost/compress/zip"
 )
 
 // https://golangcode.com/create-zip-files-in-go/
@@ -18,6 +18,12 @@ func zipFiles(filename string, files []string) error {
 
 	zipWriter := zip.NewWriter(newZipFile)
 	defer zipWriter.Close()
+
+	// Register a custom compressor with best compression level (9)
+	// to maximize compression ratio for smaller backup files
+	zipWriter.RegisterCompressor(zip.Deflate, func(w io.Writer) (io.WriteCloser, error) {
+		return stdflate.NewWriter(w, stdflate.BestCompression)
+	})
 
 	// Add files to zip
 	for _, file := range files {

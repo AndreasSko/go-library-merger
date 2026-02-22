@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/AndreasSko/go-jwlm/merger"
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/merger"
+	"github.com/AndreasSko/go-library-merger/model"
 	"github.com/stretchr/testify/assert"
 )
 

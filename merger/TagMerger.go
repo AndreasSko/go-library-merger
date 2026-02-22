@@ -1,6 +1,6 @@
 package merger
 
-import "github.com/AndreasSko/go-jwlm/model"
+import "github.com/AndreasSko/go-library-merger/model"
 
 // MergeTags tries to merge the left and right slice of Tag. If there is a
 // collision, it returns an error asking for specification how it should handle it.

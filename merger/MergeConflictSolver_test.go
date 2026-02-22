@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/model"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -226,19 +226,19 @@ func Test_parseResolver(t *testing.T) {
 	resolver, err = parseResolver("chooseLeft")
 	assert.NoError(t, err)
 	assert.Equal(t,
-		"github.com/AndreasSko/go-jwlm/merger.SolveConflictByChoosingLeft",
+		"github.com/AndreasSko/go-library-merger/merger.SolveConflictByChoosingLeft",
 		runtime.FuncForPC(reflect.ValueOf(resolver).Pointer()).Name())
 
 	resolver, err = parseResolver("chooseRight")
 	assert.NoError(t, err)
 	assert.Equal(t,
-		"github.com/AndreasSko/go-jwlm/merger.SolveConflictByChoosingRight",
+		"github.com/AndreasSko/go-library-merger/merger.SolveConflictByChoosingRight",
 		runtime.FuncForPC(reflect.ValueOf(resolver).Pointer()).Name())
 
 	resolver, err = parseResolver("chooseNewest")
 	assert.NoError(t, err)
 	assert.Equal(t,
-		"github.com/AndreasSko/go-jwlm/merger.SolveConflictByChoosingNewest",
+		"github.com/AndreasSko/go-library-merger/merger.SolveConflictByChoosingNewest",
 		runtime.FuncForPC(reflect.ValueOf(resolver).Pointer()).Name())
 
 	resolver, err = parseResolver("nonexistent")

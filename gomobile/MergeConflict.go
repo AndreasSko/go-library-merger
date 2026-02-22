@@ -6,8 +6,8 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/AndreasSko/go-jwlm/merger"
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/merger"
+	"github.com/AndreasSko/go-library-merger/model"
 )
 
 // MergeConflictError indicates that a conflict happened while merging. It

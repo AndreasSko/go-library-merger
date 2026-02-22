@@ -1,7 +1,7 @@
 package merger
 
 import (
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/model"
 )
 
 // IDChanges represents the changed ids of two slices of a model type

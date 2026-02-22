@@ -48,8 +48,8 @@ changelog:
       - '^docs:'
       - '^test:'
 brews:
-  - name: go-jwlm
+  - name: library-merger
     repository:
       owner: andreassko
-      name: homebrew-go-jwlm
-    homepage: https://github.com/AndreasSko/go-jwlm
+      name: homebrew-go-library-merger
+    homepage: https://github.com/AndreasSko/go-library-merger

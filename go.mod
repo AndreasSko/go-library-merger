@@ -1,4 +1,4 @@
-module github.com/AndreasSko/go-jwlm
+module github.com/AndreasSko/go-library-merger
 
 go 1.24
 

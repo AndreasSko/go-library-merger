@@ -3,7 +3,7 @@ package merger
 import (
 	"fmt"
 
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/model"
 )
 
 // MergeLocations merges two slices of Location into one and returns

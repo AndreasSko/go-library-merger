@@ -3,7 +3,7 @@ package gomobile
 import (
 	"context"
 
-	"github.com/AndreasSko/go-jwlm/publication"
+	"github.com/AndreasSko/go-library-merger/publication"
 )
 
 // DownloadManager keeps all the information of a running download, enabling it

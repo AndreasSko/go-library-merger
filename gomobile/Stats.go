@@ -3,7 +3,7 @@ package gomobile
 import (
 	"reflect"
 
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/model"
 )
 
 // DatabaseStats represents the rough number of entries

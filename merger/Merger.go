@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/model"
 )
 
 // MergeSolution indicates wheter a entry came from the left or right

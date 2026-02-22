@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/model"
 )
 
 // brFrom indicates from which mergeSide a *BlockRange

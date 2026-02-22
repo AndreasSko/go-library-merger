@@ -1,7 +1,7 @@
 package merger
 
 import (
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/model"
 )
 
 // MergeBookmarks tries to merge the left and right slices of Bookmarks. If there is a

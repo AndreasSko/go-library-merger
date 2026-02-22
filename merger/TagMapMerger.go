@@ -3,7 +3,7 @@ package merger
 import (
 	"sort"
 
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/model"
 )
 
 // MergeTagMaps merges a left and right slice of TagMap. It automatically

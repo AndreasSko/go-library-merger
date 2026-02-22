@@ -14,7 +14,7 @@ var cfgFile string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "go-jwlm",
+	Use:   "library-merger",
 	Short: "A utility to merge multiple JW Library backup files",
 }
 
@@ -34,7 +34,7 @@ func init() {
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.go-jwlm.yaml)")
+	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.library-merger.yaml)")
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -50,9 +50,9 @@ func initConfig() {
 			os.Exit(1)
 		}
 
-		// Search config in home directory with name ".go-jwlm" (without extension).
+		// Search config in home directory with name ".library-merger" (without extension).
 		viper.AddConfigPath(home)
-		viper.SetConfigName(".go-jwlm")
+		viper.SetConfigName(".library-merger")
 	}
 
 	viper.AutomaticEnv() // read in environment variables that match

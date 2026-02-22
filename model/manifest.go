@@ -13,9 +13,11 @@ import (
 	"github.com/pkg/errors"
 )
 
-const version = 1
-const supportedSchemaVersionMin = 13
-const supportedSchemaVersionMax = 14
+const (
+	version                   = 1
+	supportedSchemaVersionMin = 13
+	supportedSchemaVersionMax = 14
+)
 
 type manifest struct {
 	CreationDate   string         `json:"creationDate"`
@@ -95,7 +97,7 @@ func generateManifest(backupName string, dbFile string) (*manifest, error) {
 			Hash:             hash,
 			DatabaseName:     filepath.Base(dbFile),
 			SchemaVersion:    supportedSchemaVersionMax,
-			DeviceName:       "go-jwlm",
+			DeviceName:       "library-merger",
 		},
 		Name:    backupName,
 		Type:    0,
@@ -112,7 +114,7 @@ func (mfst *manifest) exportManifest(path string) error {
 		return errors.Wrap(err, "Error while marshalling manifest")
 	}
 
-	if err := os.WriteFile(path, bytes, 0644); err != nil {
+	if err := os.WriteFile(path, bytes, 0o644); err != nil {
 		return errors.Wrap(err, fmt.Sprintf("Error while saving manifest file at %v", path))
 	}
 

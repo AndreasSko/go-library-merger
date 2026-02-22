@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2/terminal"
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/model"
 	"github.com/MakeNowJust/heredoc"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -27,7 +27,7 @@ var purgeCmd = &cobra.Command{
 	 * Tag
 	 * TagMap
 	 * UserMark`),
-	Example: `go-jwlm purge original.jwlibrary purged.jwlibrary --tables=Note,Tag,TagMap`,
+	Example: `library-merger purge original.jwlibrary purged.jwlibrary --tables=Note,Tag,TagMap`,
 	Run: func(cmd *cobra.Command, args []string) {
 		inputFilename := args[0]
 		outputFilename := args[1]

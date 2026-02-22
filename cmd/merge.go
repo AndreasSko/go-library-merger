@@ -7,8 +7,8 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/AlecAivazis/survey/v2/terminal"
-	"github.com/AndreasSko/go-jwlm/merger"
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/merger"
+	"github.com/AndreasSko/go-library-merger/model"
 	"github.com/buger/goterm"
 	"github.com/jedib0t/go-pretty/table"
 	"github.com/spf13/cobra"
@@ -26,8 +26,8 @@ the right backup is detected, the user is asked to choose which side should
 be included in the merged backup. You are able to let the merger 
 automatically solve conflicts using the 'chooseLeft', 'chooseRight', and 
 'chooseNewest' resolvers (see Flags).`,
-	Example: `go-jwlm merge left.jwlibrary right.jwlibrary merged.jwlibrary
-go-jwlm merge left.jwlibrary right.jwlibrary merged.jwlibrary --bookmarks chooseLeft --markings chooseRight --notes chooseNewest --inputFields chooseRight`,
+	Example: `library-merger merge left.jwlibrary right.jwlibrary merged.jwlibrary
+library-merger merge left.jwlibrary right.jwlibrary merged.jwlibrary --bookmarks chooseLeft --markings chooseRight --notes chooseNewest --inputFields chooseRight`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		leftFilename := args[0]
 		rightFilename := args[1]

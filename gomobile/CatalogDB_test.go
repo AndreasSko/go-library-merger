@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndreasSko/go-jwlm/publication"
+	"github.com/AndreasSko/go-library-merger/publication"
 	"github.com/stretchr/testify/assert"
 )
 

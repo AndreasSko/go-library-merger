@@ -16,7 +16,7 @@ var exampleManifest = &manifest{
 		Hash:             "e2e09ceba668bb1ad093b2db317237451a01ae9ff435b38c840b70dc434f184f",
 		DatabaseName:     userDataFilename,
 		SchemaVersion:    14,
-		DeviceName:       "go-jwlm",
+		DeviceName:       "library-merger",
 	},
 	Name:    "test",
 	Type:    0,
@@ -168,5 +168,4 @@ func Test_exportManifest(t *testing.T) {
 	err = otherMfst.importManifest(path)
 	assert.NoError(t, err)
 	assert.Equal(t, exampleManifest, otherMfst)
-
 }

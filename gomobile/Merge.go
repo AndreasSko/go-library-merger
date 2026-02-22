@@ -1,7 +1,7 @@
 package gomobile
 
 import (
-	"github.com/AndreasSko/go-jwlm/merger"
+	"github.com/AndreasSko/go-library-merger/merger"
 	"github.com/pkg/errors"
 	_ "golang.org/x/mobile/bind"
 )

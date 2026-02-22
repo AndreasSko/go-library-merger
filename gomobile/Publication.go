@@ -3,7 +3,7 @@ package gomobile
 import (
 	"encoding/json"
 
-	"github.com/AndreasSko/go-jwlm/publication"
+	"github.com/AndreasSko/go-library-merger/publication"
 )
 
 // PublicationLookup represents a lookup for a publication.

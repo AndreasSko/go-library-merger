@@ -3,7 +3,7 @@ package merger
 import (
 	"fmt"
 
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/model"
 )
 
 // PrepareDatabasesPreMerge bundles function calls that are necessary for preparing the

@@ -29,9 +29,11 @@ var userDataDatabaseFile []byte
 //go:embed data/default_thumbnail.png
 var defaultThumbnailFile []byte
 
-const manifestFilename = "manifest.json"
-const userDataFilename = "userData.db"
-const defaultThumbnailFilename = "default_thumbnail.png"
+const (
+	manifestFilename         = "manifest.json"
+	userDataFilename         = "userData.db"
+	defaultThumbnailFilename = "default_thumbnail.png"
+)
 
 // Database represents the JW Library database as a struct
 type Database struct {
@@ -240,7 +242,7 @@ func (db *Database) Equals(other *Database) bool {
 // included SQLite DB to the Database struct
 func (db *Database) ImportJWLBackup(filename string) error {
 	// Create tmp folder and place all files there
-	tmp, err := os.MkdirTemp(db.TempDir, "go-jwlm")
+	tmp, err := os.MkdirTemp(db.TempDir, "library-merger")
 	if err != nil {
 		return errors.Wrap(err, "Error while creating temporary directory")
 	}
@@ -600,7 +602,7 @@ func getSliceCapacity(sqlite *sql.DB, modelType Model) (int, error) {
 // ExportJWLBackup creates a .jwlibrary backup file out of a Database{} struct
 func (db *Database) ExportJWLBackup(filename string) error {
 	// Create tmp folder and place all files there
-	tmp, err := os.MkdirTemp(db.TempDir, "go-jwlm")
+	tmp, err := os.MkdirTemp(db.TempDir, "library-merger")
 	if err != nil {
 		return errors.Wrap(err, "Error while creating temporary directory")
 	}
@@ -614,7 +616,7 @@ func (db *Database) ExportJWLBackup(filename string) error {
 
 	// Create manifest.json
 	manifestPath := filepath.Join(tmp, manifestFilename)
-	mfst, err := generateManifest("go-jwlm", dbPath)
+	mfst, err := generateManifest("library-merger", dbPath)
 	if err != nil {
 		return errors.Wrap(err, "Error while generating manifest")
 	}
@@ -623,7 +625,7 @@ func (db *Database) ExportJWLBackup(filename string) error {
 	}
 
 	defaultThumbnailPath := filepath.Join(tmp, defaultThumbnailFilename)
-	if err := os.WriteFile(defaultThumbnailPath, defaultThumbnailFile, 0644); err != nil {
+	if err := os.WriteFile(defaultThumbnailPath, defaultThumbnailFile, 0o644); err != nil {
 		return fmt.Errorf("writing default thumbnail to %s: %w", defaultThumbnailPath, err)
 	}
 
@@ -766,7 +768,7 @@ func insertEntries(sqlite *sql.DB, m []Model) error {
 
 // createEmptySQLiteDB creates a new SQLite database at filename with the base userData.db from JWLibrary
 func createEmptySQLiteDB(filename string) error {
-	if err := os.WriteFile(filename, userDataDatabaseFile, 0644); err != nil {
+	if err := os.WriteFile(filename, userDataDatabaseFile, 0o644); err != nil {
 		return errors.Wrap(err, fmt.Sprintf("Error while saving new SQLite database at %s", filename))
 	}
 

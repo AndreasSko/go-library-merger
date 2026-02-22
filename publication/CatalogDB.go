@@ -75,7 +75,7 @@ func DownloadCatalog(ctx context.Context, prgrs chan Progress, dst string) error
 	}
 
 	// Create tmp folder and place all files there
-	tmp, err := os.MkdirTemp("", "go-jwlm")
+	tmp, err := os.MkdirTemp("", "library-merger")
 	if err != nil {
 		return errors.Wrap(err, "Error while creating temporary directory")
 	}

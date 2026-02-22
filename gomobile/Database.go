@@ -3,8 +3,8 @@ package gomobile
 import (
 	"errors"
 
-	"github.com/AndreasSko/go-jwlm/merger"
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/merger"
+	"github.com/AndreasSko/go-library-merger/model"
 )
 
 // DatabaseWrapper wraps the left, right, and merged

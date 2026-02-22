@@ -1,5 +1,5 @@
 *.prof
-go-jwlm
+library-merger
 *.pdf
 *.DS_Store
 2020-08-06.jwlibrary

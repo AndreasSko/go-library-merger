@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/AlecAivazis/survey/v2/terminal"
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/model"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -13,7 +13,7 @@ import (
 var compareCmd = &cobra.Command{
 	Use:     "compare <left-backup> <right-backup>",
 	Short:   "Compare two JW Library backup files to see if they are equal",
-	Example: `go-jwlm compare left.jwlibrary right.jwlibrary`,
+	Example: `library-merger compare left.jwlibrary right.jwlibrary`,
 	Run: func(cmd *cobra.Command, args []string) {
 		leftFilename := args[0]
 		rightFilename := args[1]

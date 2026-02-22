@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/AlecAivazis/survey/v2/terminal"
-	"github.com/AndreasSko/go-jwlm/model"
+	"github.com/AndreasSko/go-library-merger/model"
 	expect "github.com/Netflix/go-expect"
 	"github.com/stretchr/testify/assert"
 )

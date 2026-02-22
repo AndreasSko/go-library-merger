@@ -1,17 +1,17 @@
 [![Coverage
-Status](https://coveralls.io/repos/github/AndreasSko/go-jwlm/badge.svg?branch=master)](https://coveralls.io/github/AndreasSko/go-jwlm?branch=master)
+Status](https://coveralls.io/repos/github/AndreasSko/go-library-merger/badge.svg?branch=master)](https://coveralls.io/github/AndreasSko/go-library-merger?branch=master)
 
-# go-jwlm
-A command-line tool to easily merge JW Library backups, written in Go.
+# library-merger
+A command-line tool to easily merge JW Library® backups, written in Go.
 For the iOS version, visit [ios-jwlm](https://github.com/AndreasSko/ios-jwlm).
 
-go-jwlm allows you to merge two .jwlibrary backup files, while giving you
+library-merger allows you to merge two .jwlibrary backup files, while giving you
 control of the process - your notes are precious, and you shouldn‘t need to
 trust a program solving possible merge conflicts for you.
 
 I created this project with the goal of having a tool that is able to work on
 multiple operating systems, and even allowing it to be incorporated in other
-programs as a library (like an [iOS app](https://github.com/AndreasSko/ios-jwlm)). 
+programs as a library (like an [iOS app](https://github.com/AndreasSko/ios-jwlm)).
 It is - and will be for
 quite some time - a work-in-progress project, so I‘m always open for suggestion
 and especially reports if you encounter an unexpected behavior or other bugs. 
@@ -21,14 +21,14 @@ and press enter. The tool will merge all entries for you. If it encounters a
 conflict (like the same note with different content or two markings that
 overlap), it will ask you for directions: should it choose the left version or
 the right one? After that is finished, you have a nicely merged backup that you
-can import into your JW Library App. The first merge process might take some
+can import into your JW Library® App. The first merge process might take some
 time because of the number of possible conflicts, depending on how far apart you
 backups are. But if you merge them regularly, it should be a matter of seconds
 :) 
 
 ## Usage
 ```shell
-go-jwlm merge <left-backup> <right-backup> <merged-backup>
+library-merger merge <left-backup> <right-backup> <merged-backup>
 ```
 
 If a conflict occurs while merging, the tool will ask for directions: should it
@@ -48,7 +48,7 @@ You can enable these solvers with the `--bookmarks`, `--markings`,
 `--notes`, and `--inputFields` flags:
 
 ```shell
-go-jwlm merge <left-backup> <right-backup> <merged-backup> --bookmarks chooseLeft --markings chooseRight --notes chooseNewest --inputFields chooseLeft
+library-merger merge <left-backup> <right-backup> <merged-backup> --bookmarks chooseLeft --markings chooseRight --notes chooseNewest --inputFields chooseLeft
 ```
 
 The conflict resolvers are helpful for regular merging when you are 
@@ -58,26 +58,26 @@ accidentally overwriting entries.
 
 ### Compare two backups
 To quickly compare two backup files and check if their content is equal,
-you can use the `go-jwlm compare <left-backup> <right-backup>` command. 
+you can use the `library-merger compare <left-backup> <right-backup>` command. 
 This one is mainly used for validation, but might be helpful in other 
 situations :)
 
 ## Installation 
 You can find the compiled binaries for Windows, Linux, and Mac under the
-[Release](https://github.com/AndreasSko/go-jwlm/releases) section. 
+[Release](https://github.com/AndreasSko/go-library-merger/releases) section. 
 
 ### Installation using Homebrew (Mac and Linux)
-go-jwlm can be easily installed using Hombrew:
+library-merger can be easily installed using Homebrew:
 ```shell
-brew install andreassko/homebrew-go-jwlm/go-jwlm
+brew install andreassko/homebrew-go-library-merger/library-merger
 ```
 
 See the instructions on how to install Homebrew at https://brew.sh
 
 ## Mobile version
 If you want to merge backups using your iPhone or iPad, have a look at
-[JWLM](https://github.com/AndreasSko/ios-jwlm). It uses the whole merge
-logic of go-jwlm, but wraps it in a nice and easy to use iOS app. It is 
+[Library Merger](https://github.com/AndreasSko/ios-jwlm). It uses the whole merge
+logic of library-merger, but wraps it in a nice and easy to use iOS app. It is 
 already available on the [App Store](https://apps.apple.com/us/app/jwlm-jw-library-merger/id1539780103).
 
 There might come an Android version at some point, but as I personally
@@ -95,7 +95,7 @@ of this repo and run `gomobile bind -target <ios or android>`.
 
 ## A word of caution 
 It took me a while to trust my own program, but I still keep backups of my
-libraries - and so should you. Go-jwlm is still in beta-phase, so there is a
+libraries - and so should you. Library-merger is still in beta-phase, so there is a
 possibility that something might get lost because of a yet-to-find bug. So
 please keep that in mind and - again - if you found a bug, feel free to open an
 issue. 
@@ -104,3 +104,14 @@ issue.
 Something is unclear, you have suggestions for documentation or you found a bug?
 Feel free to open an issue. I‘m happy to help, though please be patient if it
 takes a while for me to respond :)
+
+## Legal Notice
+
+This application is not owned or operated by
+Watch Tower Bible and Tract Society of Pennsylvania, however it is distributed
+with permission under a license from Watch Tower. All ownership rights to the
+content within the JW Library® application remain exclusively with Watch Tower
+Bible and Tract Society of Pennsylvania.
+
+JW Library® is a registered trademark owned exclusively by Watch Tower Bible
+and Tract Society of Pennsylvania ("Watch Tower").

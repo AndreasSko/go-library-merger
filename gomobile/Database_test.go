@@ -61,12 +61,12 @@ func TestDatabaseWrapper_ImportJWLBackup(t *testing.T) {
 			},
 		},
 		{
-			name:     "contains playlists, skip playlists not set",
+			name:     "playlist archive missing its media",
 			dbw:      &DatabaseWrapper{},
 			filename: filepath.Join(testdataDir, "backup_withPlaylist.jwlibrary"),
 			side:     "leftSide",
 			wantErr: func(tt assert.TestingT, err error, i ...interface{}) bool {
-				return assert.ErrorContains(tt, err, "merging of playlists is not supported yet")
+				return assert.ErrorContains(tt, err, "copyIndependentMedia")
 			},
 		},
 		{

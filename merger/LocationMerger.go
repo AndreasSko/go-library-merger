@@ -27,7 +27,7 @@ func solveLocationMergeConflict(conflicts map[string]MergeConflict) (map[string]
 		case *model.Location:
 			leftTitle = left.Title.String
 		default:
-			panic(fmt.Sprintf("No other type than *model.Location is supported! Given: %T", left))
+			panic(fmt.Sprintf("No other type than *model.Location is supported! Given: %T", left)) // TODO: Return an error instead of panicking
 		}
 
 		if leftTitle != "" {

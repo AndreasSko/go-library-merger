@@ -5,3 +5,9 @@ library-merger
 2020-08-06.jwlibrary
 2020-03-30.jwlibrary
 dist
+
+# Temporary SQLite journal files and local diagnostic exports
+model/data/*.db-shm
+model/data/*.db-wal
+/merged/
+/outputs/

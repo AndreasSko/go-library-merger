@@ -2,7 +2,9 @@ package model
 
 import (
 	"archive/zip"
+	"crypto/sha256"
 	"database/sql"
+	stdErrors "errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"reflect"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/davecgh/go-spew/spew"
@@ -37,22 +40,28 @@ const (
 
 // Database represents the JW Library database as a struct
 type Database struct {
-	BlockRange []*BlockRange
-	Bookmark   []*Bookmark
-	InputField []*InputField
-	Location   []*Location
-	Note       []*Note
-	Tag        []*Tag
-	TagMap     []*TagMap
-	UserMark   []*UserMark
+	BlockRange                      []*BlockRange
+	Bookmark                        []*Bookmark
+	IndependentMedia                []*IndependentMedia
+	InputField                      []*InputField
+	Location                        []*Location
+	Note                            []*Note
+	PlaylistItem                    []*PlaylistItem
+	PlaylistItemIndependentMediaMap []*PlaylistItemIndependentMediaMap
+	PlaylistItemLocationMap         []*PlaylistItemLocationMap
+	Tag                             []*Tag
+	TagMap                          []*TagMap
+	UserMark                        []*UserMark
 
 	// ContainsPlaylists indicates if the imported backup contains playlists.
 	ContainsPlaylists bool
-	// SkipPlaylists allows to skip prevention of merging if playlists exist in the database.
-	// It is meant as a temporary workaround until merging of playlists is implemented.
+	// SkipPlaylists excludes playlist data when importing a backup.
 	SkipPlaylists bool
 	// TempDir is used for temporary files. If not set, os.TempDir() will be used.
 	TempDir string
+	// IndependentMediaDir is a temporary directory where files from the independent media table are stored
+	// when importing. It is up to the caller to ensure the directory will be cleaned up after use.
+	IndependentMediaDir string
 }
 
 // FetchFromTable tries to fetch a entry with the given ID. If it can't find it
@@ -142,6 +151,7 @@ func MakeDatabaseCopy(db *Database) *Database {
 		}
 	}
 
+	newDB.relinkCopiedPlaylistRelations()
 	return newDB
 }
 
@@ -160,6 +170,7 @@ func (db *Database) Equals(other *Database) bool {
 		UpdateIDs(db.Note, "LocationID", locIDChanges)
 		UpdateIDs(db.TagMap, "LocationID", locIDChanges)
 		UpdateIDs(db.UserMark, "LocationID", locIDChanges)
+		UpdateIDs(db.PlaylistItemLocationMap, "LocationID", locIDChanges)
 
 		SortByUniqueKey(&db.Bookmark)
 		SortByUniqueKey(&db.InputField)
@@ -176,6 +187,14 @@ func (db *Database) Equals(other *Database) bool {
 		noteIDChanges := SortByUniqueKey(&db.Note)
 		UpdateIDs(db.TagMap, "NoteID", noteIDChanges)
 
+		mediaChanges := SortByUniqueKey(&db.IndependentMedia)
+		UpdateIDs(db.PlaylistItemIndependentMediaMap, "IndependentMediaID", mediaChanges)
+		itemChanges := SortByUniqueKey(&db.PlaylistItem)
+		UpdateIDs(db.TagMap, "PlaylistItemID", itemChanges)
+		UpdateIDs(db.PlaylistItemLocationMap, "PlaylistItemID", itemChanges)
+		UpdateIDs(db.PlaylistItemIndependentMediaMap, "PlaylistItemID", itemChanges)
+		SortByUniqueKey(&db.PlaylistItemLocationMap)
+		SortByUniqueKey(&db.PlaylistItemIndependentMediaMap)
 		SortByUniqueKey(&db.TagMap)
 	}
 
@@ -183,6 +202,10 @@ func (db *Database) Equals(other *Database) bool {
 	dbFields := reflect.ValueOf(dbCp).Elem()
 	otherFields := reflect.ValueOf(otherCp).Elem()
 	for i := 0; i < dbFields.NumField(); i++ {
+		name := dbFields.Type().Field(i).Name
+		if name == "TempDir" || name == "IndependentMediaDir" || name == "SkipPlaylists" || name == "ContainsPlaylists" {
+			continue
+		}
 		dbField := dbFields.Field(i)
 		otherField := otherFields.Field(i)
 
@@ -193,6 +216,17 @@ func (db *Database) Equals(other *Database) bool {
 				continue
 			}
 
+			populated := func(v reflect.Value) bool {
+				for j := 0; j < v.Len(); j++ {
+					if !v.Index(j).IsNil() {
+						return true
+					}
+				}
+				return false
+			}
+			if !populated(dbField) && !populated(otherField) {
+				continue
+			}
 			if dbField.Len() != otherField.Len() {
 				fmt.Printf("Length of slices at index %d are not equal: %d vs %d\n", i, dbField.Len(), otherField.Len())
 				return false
@@ -254,21 +288,39 @@ func (db *Database) ImportJWLBackup(filename string) error {
 	}
 	defer r.Close()
 
+	// Validate every destination before extraction. Archives use flat filenames;
+	// duplicate or aliased entries would otherwise overwrite bytes on Apple and
+	// Windows filesystems, and path traversal must never leave the owned temp dir.
+	seen := map[string]bool{}
+	for _, file := range r.File {
+		if err := validateBackupFilename(file.Name); err != nil {
+			return err
+		}
+		if !file.Mode().IsRegular() {
+			return fmt.Errorf("invalid backup entry type for %q", file.Name)
+		}
+		key := strings.ToLower(file.Name)
+		if seen[key] {
+			return fmt.Errorf("duplicate backup entry %q", file.Name)
+		}
+		seen[key] = true
+	}
 	for _, file := range r.File {
 		fileReader, err := file.Open()
 		if err != nil {
 			return fmt.Errorf("failed to open file: %w", err)
 		}
-		defer fileReader.Close()
-
 		path := filepath.Join(tmp, file.Name)
-		targetFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
+		targetFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {
-			return fmt.Errorf("failed to open target file: %w", err)
+			return stdErrors.Join(fmt.Errorf("failed to open target file: %w", err), fileReader.Close())
 		}
-		defer targetFile.Close()
-
-		if _, err := io.Copy(targetFile, fileReader); err != nil {
+		_, copyErr := io.Copy(targetFile, fileReader)
+		readErr, closeErr := fileReader.Close(), targetFile.Close()
+		if copyErr != nil {
+			return errors.Wrap(copyErr, "Error while copying files from backup to temporary folder")
+		}
+		if err := stdErrors.Join(readErr, closeErr); err != nil {
 			return errors.Wrap(err, "Error while copying files from backup to temporary folder")
 		}
 	}
@@ -286,8 +338,33 @@ func (db *Database) ImportJWLBackup(filename string) error {
 	}
 
 	// Fill the Database with actual data
+	if err := validateBackupFilename(manifest.UserDataBackup.DatabaseName); err != nil {
+		return err
+	}
 	path = filepath.Join(tmp, manifest.UserDataBackup.DatabaseName)
-	return db.importSQLite(path)
+	if err = db.importSQLite(path); err != nil {
+		return fmt.Errorf("importSQLite: %w", err)
+	}
+
+	if len(db.IndependentMedia) <= 1 {
+		return nil
+	}
+	db.IndependentMediaDir, err = os.MkdirTemp(db.TempDir, "go-jwlm-independent-media")
+	if err != nil {
+		return errors.Wrap(err, "Error while creating temporary directory")
+	}
+
+	if err = CopyIndependentMedia(tmp, db.IndependentMediaDir, db.IndependentMedia); err != nil {
+		return stdErrors.Join(fmt.Errorf("copyIndependentMedia: %w", err), db.CleanupMedia())
+	}
+	// Validation canonicalizes content identity without changing declared hashes.
+	// Native and padded encodings of one payload may coexist in a backup, so the
+	// occurrence numbers assigned during SQLite loading must be rebuilt now.
+	if err = db.LinkPlaylistItems(); err != nil {
+		return stdErrors.Join(fmt.Errorf("linkPlaylistItems after media validation: %w", err), db.CleanupMedia())
+	}
+
+	return nil
 }
 
 // importSQLite imports a given SQLite DB into the Database struct
@@ -299,9 +376,9 @@ func (db *Database) importSQLite(filename string) error {
 	}
 	defer sqlite.Close()
 
-	var wg sync.WaitGroup
-	wg.Add(8)
-	errors := make(chan error, 10)
+	var wg sync.WaitGroup // TODO: Change to errGroup
+	wg.Add(12)
+	errors := make(chan error, 12)
 
 	// Fill each table struct separately (did not find a DRYer solution yet..)
 	go func() {
@@ -392,6 +469,66 @@ func (db *Database) importSQLite(filename string) error {
 		wg.Done()
 	}()
 
+	go func() {
+		if db.SkipPlaylists {
+			wg.Done()
+			return
+		}
+		mdl, err := fetchFromSQLite(sqlite, &IndependentMedia{})
+		if err != nil {
+			errors <- err
+			wg.Done()
+			return
+		}
+		db.IndependentMedia = IndependentMedia{}.MakeSlice(mdl)
+		wg.Done()
+	}()
+
+	go func() {
+		if db.SkipPlaylists {
+			wg.Done()
+			return
+		}
+		mdl, err := fetchFromSQLite(sqlite, &PlaylistItem{})
+		if err != nil {
+			errors <- err
+			wg.Done()
+			return
+		}
+		db.PlaylistItem = PlaylistItem{}.MakeSlice(mdl)
+		wg.Done()
+	}()
+
+	go func() {
+		if db.SkipPlaylists {
+			wg.Done()
+			return
+		}
+		mdl, err := fetchFromSQLite(sqlite, &PlaylistItemIndependentMediaMap{})
+		if err != nil {
+			errors <- err
+			wg.Done()
+			return
+		}
+		db.PlaylistItemIndependentMediaMap = PlaylistItemIndependentMediaMap{}.MakeSlice(mdl)
+		wg.Done()
+	}()
+
+	go func() {
+		if db.SkipPlaylists {
+			wg.Done()
+			return
+		}
+		mdl, err := fetchFromSQLite(sqlite, &PlaylistItemLocationMap{})
+		if err != nil {
+			errors <- err
+			wg.Done()
+			return
+		}
+		db.PlaylistItemLocationMap = PlaylistItemLocationMap{}.MakeSlice(mdl)
+		wg.Done()
+	}()
+
 	wg.Wait()
 
 	select {
@@ -399,54 +536,30 @@ func (db *Database) importSQLite(filename string) error {
 		return err
 	default:
 	}
-
-	// Make sure these tables are empty as we are not able to merge them yet.
-	// Better to fail, than to risk losing data..
-	emptyTables := []string{
-		"IndependentMedia",
-		"PlaylistItem",
-		"PlaylistItemIndependentMediaMap",
-		"PlaylistItemLocationMap",
-		"PlaylistItemMarker",
-		"PlaylistItemMarkerBibleVerseMap",
-		"PlaylistItemMarkerParagraphMap",
+	for _, tag := range db.Tag {
+		if tag != nil && tag.TagType == 2 {
+			db.ContainsPlaylists = true
+		}
 	}
-	for _, table := range emptyTables {
+	if db.SkipPlaylists {
+		db.removePlaylists()
+		return nil
+	}
+	// These tables encode clips/markers that this merger cannot yet preserve.
+	for _, table := range []string{"PlaylistItemMarker", "PlaylistItemMarkerBibleVerseMap", "PlaylistItemMarkerParagraphMap"} {
 		count, err := getTableEntryCount(sqlite, table)
 		if err != nil {
 			return err
 		}
 		if count > 0 {
-			db.ContainsPlaylists = true
+			return fmt.Errorf("merging of playlists is not supported yet for table %s; use SkipPlaylists to omit playlists", table)
 		}
 	}
-
-	db.removePlaylists()
-
-	if db.ContainsPlaylists && !db.SkipPlaylists {
-		return fmt.Errorf("merging of playlists is not supported yet. Enable SkipPlaylists flag to skip this safety check")
+	if err := db.LinkPlaylistItems(); err != nil {
+		return err
 	}
 
 	return nil
-}
-
-// removePlaylists removes all playlists (represented as a Tag with type 2)
-// and its items from the database. It indicates that the database contained
-// playlists by setting the ContainedPlaylists field to true.
-func (db *Database) removePlaylists() {
-	for i, t := range db.Tag {
-		if t != nil && t.TagType == 2 {
-			db.ContainsPlaylists = true
-			db.Tag[i] = nil
-		}
-	}
-
-	for i, t := range db.TagMap {
-		if t != nil && t.PlaylistItemID.Valid && t.PlaylistItemID.Int32 != 0 {
-			db.ContainsPlaylists = true
-			db.TagMap[i] = nil
-		}
-	}
 }
 
 // fetchFromSQLite fetches the entries for a given modelType and returns a slice
@@ -474,12 +587,20 @@ func fetchFromSQLite(sqlite *sql.DB, modelType Model) ([]Model, error) {
 			m = &BlockRange{}
 		case *Bookmark:
 			m = &Bookmark{}
+		case *IndependentMedia:
+			m = &IndependentMedia{}
 		case *InputField:
 			m = &InputField{pseudoID: i}
 		case *Location:
 			m = &Location{}
 		case *Note:
 			m = &Note{}
+		case *PlaylistItem:
+			m = &PlaylistItem{}
+		case *PlaylistItemIndependentMediaMap:
+			m = &PlaylistItemIndependentMediaMap{pseudoID: i}
+		case *PlaylistItemLocationMap:
+			m = &PlaylistItemLocationMap{pseudoID: i}
 		case *Tag:
 			m = &Tag{}
 		case *TagMap:
@@ -599,6 +720,51 @@ func getSliceCapacity(sqlite *sql.DB, modelType Model) (int, error) {
 	return capacity + 1, nil
 }
 
+// copyIndependentMedia copies all files referenced in IndependentMedia from src to dest.
+func CopyIndependentMedia(src, dst string, independentMedia []*IndependentMedia) error {
+	for _, im := range independentMedia {
+		if im == nil {
+			continue
+		}
+		err := im.CopyFile(src, dst)
+		if err != nil {
+			return err
+		}
+		file, err := os.Open(filepath.Join(dst, im.FilePath))
+		if err != nil {
+			return err
+		}
+		hasher := sha256.New()
+		_, copyErr := io.Copy(hasher, file)
+		closeErr := file.Close()
+		if err := stdErrors.Join(copyErr, closeErr); err != nil {
+			return err
+		}
+		digest := hasher.Sum(nil)
+		canonical := fmt.Sprintf("%x", digest)
+		// Native JW Library concatenates hexadecimal bytes without padding each
+		// byte. Generated fixtures and other tools may use standard padded hex.
+		var native strings.Builder
+		for _, value := range digest {
+			fmt.Fprintf(&native, "%x", value)
+		}
+		if !strings.EqualFold(im.Hash, canonical) && !strings.EqualFold(im.Hash, native.String()) {
+			return fmt.Errorf("independent media hash mismatch for %q", im.FilePath)
+		}
+		im.validatedHash = canonical
+		im.validatedSourceHash = im.Hash
+	}
+
+	return nil
+}
+
+func validateBackupFilename(name string) error {
+	if name == "." || name == ".." || !filepath.IsLocal(name) || strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("invalid backup filename %q", name)
+	}
+	return nil
+}
+
 // ExportJWLBackup creates a .jwlibrary backup file out of a Database{} struct
 func (db *Database) ExportJWLBackup(filename string) error {
 	// Create tmp folder and place all files there
@@ -631,6 +797,21 @@ func (db *Database) ExportJWLBackup(filename string) error {
 
 	// Store files in .jwlibrary (zip)-file
 	files := []string{dbPath, manifestPath, defaultThumbnailPath}
+	for _, im := range db.IndependentMedia {
+		if im == nil {
+			continue
+		}
+		files = append(files, filepath.Join(db.IndependentMediaDir, im.FilePath))
+	}
+	included := map[string]bool{defaultThumbnailFilename: true}
+	for _, file := range files {
+		included[filepath.Base(file)] = true
+	}
+	for _, item := range db.PlaylistItem {
+		if item != nil && item.ThumbnailFilePath.Valid && item.ThumbnailFilePath.String != "" && !included[item.ThumbnailFilePath.String] {
+			return fmt.Errorf("missing playlist thumbnail %q", item.ThumbnailFilePath.String)
+		}
+	}
 	if err := zipFiles(filename, files); err != nil {
 		return errors.Wrap(err, fmt.Sprintf("Error while storing files in zip archive %s", filename))
 	}
@@ -666,6 +847,44 @@ func (db *Database) saveToNewSQLite(filename string) error {
 		if err := insertEntries(sqlite, mdl); err != nil {
 			return errors.Wrapf(err, "Error while inserting entries of field %d", j)
 		}
+	}
+
+	// Check playlist references after all tables have been inserted.
+	// Legacy non-playlist data may contain unrelated dangling references.
+	violations, err := sqlite.Query("PRAGMA foreign_key_check")
+	if err != nil {
+		return err
+	}
+	for violations.Next() {
+		var table, parent string
+		var rowID sql.NullInt64
+		var constraint int
+		err := violations.Scan(&table, &rowID, &parent, &constraint)
+		if err != nil {
+			return stdErrors.Join(err, violations.Close())
+		}
+		if table != "TagMap" && table != "PlaylistItem" && table != "PlaylistItemLocationMap" && table != "PlaylistItemIndependentMediaMap" {
+			continue
+		}
+		return stdErrors.Join(fmt.Errorf("invalid backup: %s references missing %s", table, parent), violations.Close())
+	}
+	err = stdErrors.Join(violations.Err(), violations.Close())
+	if err != nil {
+		return err
+	}
+
+	// Foreign keys catch missing targets, but an item with no membership or no
+	// content mapping violates no FK. Validate the complete playlist graph too,
+	// relinking copies so exporting does not change the caller's item identities.
+	playlistCopy := *db
+	playlistCopy.PlaylistItem = make([]*PlaylistItem, len(db.PlaylistItem))
+	for i, item := range db.PlaylistItem {
+		if item != nil {
+			playlistCopy.PlaylistItem[i] = MakeModelCopy(item).(*PlaylistItem)
+		}
+	}
+	if err := playlistCopy.LinkPlaylistItems(); err != nil {
+		return fmt.Errorf("invalid backup playlist relationships: %w", err)
 	}
 
 	// Vacuum to clean up SQLite DB

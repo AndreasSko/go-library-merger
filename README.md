@@ -115,3 +115,41 @@ Bible and Tract Society of Pennsylvania.
 
 JW Library® is a registered trademark owned exclusively by Watch Tower Bible
 and Tract Society of Pennsylvania ("Watch Tower").
+
+## Playlists
+
+Playlist merging is additive: entries from either backup are retained, including
+custom media, thumbnails, trim offsets, and end actions. Playlists with different
+names remain separate. Shared playlists preserve relative item order, including
+insertions at the beginning or between existing items. Contradictory reorders
+are reported as errors instead of silently choosing an order.
+
+Repeated clips use unchanged occurrences as anchors when one backup adds another
+copy. Existing setting edits still require conflict resolution. If adjacent
+insertions and edits cannot be matched unambiguously, the merge reports an error
+instead of guessing. Different media sharing an incoming filename receive distinct
+output paths, preserving both payloads and their thumbnail references.
+
+Regression coverage lives in `model/PlaylistOccurrenceAlignment_test.go`,
+`merger/IndependentMediaMerger_test.go`, and
+`gomobile/PlaylistRegression_test.go`. Run it with `go test ./...`.
+
+Playlists containing marker/clip tables or multiple media/location mappings per
+item are not supported yet. Use `--skipPlaylists` to merge the other backup data
+without playlist content.
+
+The Go mobile wrapper includes playlist merging when `MergeTagMaps` is called.
+Call `MergePlaylists` with a conflict wrapper first if item conflicts need user
+resolution, and call `Close` after export or cancellation to release temporary
+media. The iOS client needs a rebuilt framework and matching conflict handling
+before releasing this feature; this change does not update the iOS repository.
+
+
+### Lint scope
+
+CI pins golangci-lint to v2.14.0 and reviewdog to v0.21.0. The lint gate uses
+`--new-from-rev=origin/master` with complete baseline history and fails on new
+diagnostics. Existing diagnostics on unchanged master lines are excluded from
+this PR gate; a green gate does not mean the whole repository is lint-clean.
+Run `golangci-lint run` for the complete debt inventory, or
+`golangci-lint run --new-from-rev=origin/master` to reproduce the CI scope.

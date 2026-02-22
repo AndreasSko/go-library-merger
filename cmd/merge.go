@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -49,11 +50,10 @@ var NoteResolver string
 // InputFieldResolver represents a resolver that should be used for conflicting InputFields
 var InputFieldResolver string
 
-// SkipPlaylists indicates if playlists should be skipped when importing backups.
-// It is meant as a temporary workaround until merging of playlists is implemented.
+// SkipPlaylists indicates if playlists should be skipped when importing and merging backups.
 var SkipPlaylists bool
 
-func merge(leftFilename string, rightFilename string, mergedFilename string, stdio terminal.Stdio) error {
+func merge(leftFilename string, rightFilename string, mergedFilename string, stdio terminal.Stdio) (resultErr error) {
 	fmt.Fprintln(stdio.Out, "Importing left backup")
 	left := model.Database{
 		SkipPlaylists: SkipPlaylists,
@@ -63,6 +63,7 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 		return fmt.Errorf("failed to import left backup: %w", err)
 	}
 
+	defer func() { resultErr = errors.Join(resultErr, left.CleanupMedia()) }()
 	fmt.Fprintln(stdio.Out, "Importing right backup")
 	right := model.Database{
 		SkipPlaylists: SkipPlaylists,
@@ -72,10 +73,12 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 		return fmt.Errorf("failed to import right backup: %w", err)
 	}
 
+	defer func() { resultErr = errors.Join(resultErr, right.CleanupMedia()) }()
 	fmt.Fprintln(stdio.Out, "⌛ Preparing Databases")
 	merger.PrepareDatabasesPreMerge(&left, &right)
 
 	merged := model.Database{}
+	defer func() { resultErr = errors.Join(resultErr, merged.CleanupMedia()) }()
 
 	fmt.Fprintln(stdio.Out, "🧭 Merging Locations")
 	mergedLocations, locationIDChanges, err := merger.MergeLocations(left.Location, right.Location)
@@ -89,6 +92,7 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 	merger.UpdateLRIDs(left.Note, right.Note, "LocationID", locationIDChanges)
 	merger.UpdateLRIDs(left.TagMap, right.TagMap, "LocationID", locationIDChanges)
 	merger.UpdateLRIDs(left.UserMark, right.UserMark, "LocationID", locationIDChanges)
+	merger.UpdateLRIDs(left.PlaylistItemLocationMap, right.PlaylistItemLocationMap, "LocationID", locationIDChanges)
 	fmt.Fprintln(stdio.Out, "Done.")
 
 	fmt.Fprintln(stdio.Out, "📑 Merging Bookmarks")
@@ -220,6 +224,25 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 	}
 	fmt.Fprintln(stdio.Out, "Done.")
 
+	if _, err := fmt.Fprintln(stdio.Out, "🎵 Merging Playlists"); err != nil {
+		return err
+	}
+	playlistSolutions := map[string]merger.MergeSolution{}
+	for {
+		err := merger.MergePlaylists(&left, &right, &merged, playlistSolutions)
+		if err == nil {
+			break
+		}
+		if conflict, ok := err.(merger.MergeConflictError); ok {
+			addToSolutions(playlistSolutions, handleMergeConflict(conflict.Conflicts, &merged, stdio))
+		} else {
+			return fmt.Errorf("failed to merge playlists: %w", err)
+		}
+	}
+	if _, err := fmt.Fprintln(stdio.Out, "Done."); err != nil {
+		return err
+	}
+
 	fmt.Fprintln(stdio.Out, "🏷  Merging TagMaps")
 	var tagMapsConflictSolution map[string]merger.MergeSolution
 	for {
@@ -329,5 +352,5 @@ func init() {
 	mergeCmd.Flags().StringVar(&MarkingResolver, "markings", "", "Resolve conflicting markings with resolver (can be 'chooseLeft' or 'chooseRight')")
 	mergeCmd.Flags().StringVar(&NoteResolver, "notes", "", "Resolve conflicting notes with resolver (can be 'chooseNewest', 'chooseLeft', or 'chooseRight')")
 	mergeCmd.Flags().StringVar(&InputFieldResolver, "inputFields", "", "Resolve conflicting inputFields with resolver (can be 'chooseLeft', or 'chooseRight')")
-	mergeCmd.Flags().BoolVar(&SkipPlaylists, "skipPlaylists", false, "Skip playlists when importing backups. It is meant as a temporary workaround until merging of playlists is implemented.")
+	mergeCmd.Flags().BoolVar(&SkipPlaylists, "skipPlaylists", false, "Skip playlists when importing and merging backups.")
 }

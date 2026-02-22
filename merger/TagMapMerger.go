@@ -14,6 +14,11 @@ func MergeTagMaps(left []*model.TagMap, right []*model.TagMap, conflictSolution 
 		return []*model.TagMap{nil}, IDChanges{}, nil
 	}
 
+	positions, err := playlistOrder(left, right)
+	if err != nil {
+		return nil, IDChanges{}, err
+	}
+
 	// map[TagID]map[UniqueKey]TagMap
 	tags := make(map[int]map[string]*model.TagMap, len(left)+len(right))
 
@@ -56,6 +61,9 @@ func MergeTagMaps(left []*model.TagMap, right []*model.TagMap, conflictSolution 
 		}
 
 		sort.SliceStable(sortedTagMap, func(i, j int) bool {
+			if sortedTagMap[i].PlaylistItemID.Valid && sortedTagMap[j].PlaylistItemID.Valid {
+				return positions[sortedTagMap[i].UniqueKey()] < positions[sortedTagMap[j].UniqueKey()]
+			}
 			// If equal position, sort by TagID
 			if sortedTagMap[i].Position == sortedTagMap[j].Position {
 				return sortedTagMap[i].TagMapID < sortedTagMap[j].TagMapID

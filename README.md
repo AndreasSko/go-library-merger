@@ -2,7 +2,7 @@
 Status](https://coveralls.io/repos/github/AndreasSko/go-library-merger/badge.svg?branch=master)](https://coveralls.io/github/AndreasSko/go-library-merger?branch=master)
 
 # library-merger
-A command-line tool to easily merge JW Library backups, written in Go.
+A command-line tool to easily merge JW Library® backups, written in Go.
 For the iOS version, visit [ios-jwlm](https://github.com/AndreasSko/ios-jwlm).
 
 library-merger allows you to merge two .jwlibrary backup files, while giving you
@@ -21,7 +21,7 @@ and press enter. The tool will merge all entries for you. If it encounters a
 conflict (like the same note with different content or two markings that
 overlap), it will ask you for directions: should it choose the left version or
 the right one? After that is finished, you have a nicely merged backup that you
-can import into your JW Library App. The first merge process might take some
+can import into your JW Library® App. The first merge process might take some
 time because of the number of possible conflicts, depending on how far apart you
 backups are. But if you merge them regularly, it should be a matter of seconds
 :) 
@@ -76,7 +76,7 @@ See the instructions on how to install Homebrew at https://brew.sh
 
 ## Mobile version
 If you want to merge backups using your iPhone or iPad, have a look at
-[JWLM](https://github.com/AndreasSko/ios-jwlm). It uses the whole merge
+[Library Merger](https://github.com/AndreasSko/ios-jwlm). It uses the whole merge
 logic of library-merger, but wraps it in a nice and easy to use iOS app. It is 
 already available on the [App Store](https://apps.apple.com/us/app/jwlm-jw-library-merger/id1539780103).
 
@@ -104,3 +104,14 @@ issue.
 Something is unclear, you have suggestions for documentation or you found a bug?
 Feel free to open an issue. I‘m happy to help, though please be patient if it
 takes a while for me to respond :)
+
+## Legal Notice
+
+This application is not owned or operated by
+Watch Tower Bible and Tract Society of Pennsylvania, however it is distributed
+with permission under a license from Watch Tower. All ownership rights to the
+content within the JW Library® application remain exclusively with Watch Tower
+Bible and Tract Society of Pennsylvania.
+
+JW Library® is a registered trademark owned exclusively by Watch Tower Bible
+and Tract Society of Pennsylvania ("Watch Tower").

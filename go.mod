@@ -9,11 +9,11 @@ require (
 	github.com/Netflix/go-expect v0.0.0-20210722184520-ef0bf57d82b3
 	github.com/buger/goterm v1.0.1
 	github.com/cavaliercoder/grab v1.0.1-0.20201108051000-98a5bfe305ec
-	github.com/codeclysm/extract/v3 v3.0.2
+	github.com/codeclysm/extract/v3 v3.1.1
 	github.com/davecgh/go-spew v1.1.1
 	github.com/hinshun/vt10x v0.0.0-20180809195222-d55458df857c
 	github.com/jedib0t/go-pretty v4.3.0+incompatible
-	github.com/klauspost/compress v1.15.1
+	github.com/klauspost/compress v1.15.13
 	github.com/mattn/go-sqlite3 v1.14.8
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/mitchellh/go-wordwrap v1.0.1
@@ -32,7 +32,7 @@ require (
 	github.com/go-openapi/errors v0.20.0 // indirect
 	github.com/go-openapi/strfmt v0.20.0 // indirect
 	github.com/go-stack/stack v1.8.0 // indirect
-	github.com/h2non/filetype v1.1.1 // indirect
+	github.com/h2non/filetype v1.1.3 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/juju/errors v0.0.0-20200330140219-3fe23663418f // indirect
@@ -53,6 +53,7 @@ require (
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/subosito/gotenv v1.2.0 // indirect
+	github.com/ulikunitz/xz v0.5.11 // indirect
 	go.mongodb.org/mongo-driver v1.5.0 // indirect
 	golang.org/x/sys v0.0.0-20220412211240-33da011f77ad // indirect
 	golang.org/x/term v0.0.0-20210503060354-a79de5458b56 // indirect

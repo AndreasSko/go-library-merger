@@ -12,7 +12,6 @@ import (
 	"github.com/AlecAivazis/survey/v2/terminal"
 	"github.com/AndreasSko/go-library-merger/model"
 	expect "github.com/Netflix/go-expect"
-	"github.com/hinshun/vt10x"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -259,7 +258,7 @@ func Test_merge(t *testing.T) {
 func RunCmdTest(t *testing.T, procedure func(*testing.T, *expect.Console), test func(*testing.T, *expect.Console)) {
 	// Multiplex output to a buffer as well for the raw bytes.
 	buf := new(bytes.Buffer)
-	c, state, err := vt10x.NewVT10XConsole(expect.WithStdout(buf))
+	c, err := expect.NewConsole(expect.WithStdout(buf))
 	require.Nil(t, err)
 	defer c.Close()
 
@@ -276,9 +275,6 @@ func RunCmdTest(t *testing.T, procedure func(*testing.T, *expect.Console), test 
 	<-donec
 
 	t.Logf("Raw output: %q", buf.String())
-
-	// Dump the terminal's screen.
-	t.Logf("\n%s", expect.StripTrailingEmptyLines(state.String()))
 }
 
 var leftMultiCollision = &model.Database{

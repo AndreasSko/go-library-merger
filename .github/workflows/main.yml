@@ -20,7 +20,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v3
         with:
-          go-version: '1.24'
+          go-version: '1.25'
       - name: Checkout code
         uses: actions/checkout@v3
       - name: Run tests
@@ -32,7 +32,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v3
         with:
-          go-version: '1.24'
+          go-version: '1.25'
       - name: Install Gomobile
         run: go install golang.org/x/mobile/cmd/gomobile@latest
       - name: Checkout code

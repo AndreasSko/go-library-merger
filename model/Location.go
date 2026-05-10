@@ -19,6 +19,8 @@ type Location struct {
 	MepsLanguage   sql.NullInt32
 	LocationType   int
 	Title          sql.NullString
+	Specialty      sql.NullString
+	Edition        sql.NullString
 }
 
 // ID returns the ID of the entry
@@ -35,7 +37,7 @@ func (m *Location) SetID(id int) {
 // so it can be used as a key in a map.
 func (m *Location) UniqueKey() string {
 	var sb strings.Builder
-	sb.Grow(35)
+	sb.Grow(50)
 	sb.WriteString(strconv.FormatInt(int64(m.BookNumber.Int32), 10))
 	sb.WriteString("_")
 	sb.WriteString(strconv.FormatInt(int64(m.ChapterNumber.Int32), 10))
@@ -55,6 +57,18 @@ func (m *Location) UniqueKey() string {
 	}
 	sb.WriteString("_")
 	sb.WriteString(strconv.FormatInt(int64(m.LocationType), 10))
+	sb.WriteString("_")
+	if m.Specialty.Valid {
+		sb.WriteString(m.Specialty.String)
+	} else {
+		sb.WriteString("!")
+	}
+	sb.WriteString("_")
+	if m.Edition.Valid {
+		sb.WriteString(m.Edition.String)
+	} else {
+		sb.WriteString("!")
+	}
 	return sb.String()
 }
 
@@ -68,7 +82,9 @@ func (m *Location) Equals(m2 Model) bool {
 			m.IssueTagNumber == m2.IssueTagNumber &&
 			m.KeySymbol.String == m2.KeySymbol.String &&
 			m.MepsLanguage == m2.MepsLanguage &&
-			m.LocationType == m2.LocationType
+			m.LocationType == m2.LocationType &&
+			m.Specialty == m2.Specialty &&
+			m.Edition == m2.Edition
 	}
 	return false
 }
@@ -101,6 +117,8 @@ func (m Location) MarshalJSON() ([]byte, error) {
 		MepsLanguage   sql.NullInt32  `json:"mepsLanguage"`
 		LocationType   int            `json:"locationType"`
 		Title          sql.NullString `json:"title"`
+		Specialty      sql.NullString `json:"specialty"`
+		Edition        sql.NullString `json:"edition"`
 	}{
 		Type:           "Location",
 		LocationID:     m.LocationID,
@@ -113,6 +131,8 @@ func (m Location) MarshalJSON() ([]byte, error) {
 		MepsLanguage:   m.MepsLanguage,
 		LocationType:   m.LocationType,
 		Title:          m.Title,
+		Specialty:      m.Specialty,
+		Edition:        m.Edition,
 	})
 }
 
@@ -126,7 +146,8 @@ func (m *Location) idName() string {
 
 func (m *Location) scanRow(rows *sql.Rows) (Model, error) {
 	err := rows.Scan(&m.LocationID, &m.BookNumber, &m.ChapterNumber, &m.DocumentID, &m.Track,
-		&m.IssueTagNumber, &m.KeySymbol, &m.MepsLanguage, &m.LocationType, &m.Title)
+		&m.IssueTagNumber, &m.KeySymbol, &m.MepsLanguage, &m.LocationType, &m.Title,
+		&m.Specialty, &m.Edition)
 	return m, err
 }
 

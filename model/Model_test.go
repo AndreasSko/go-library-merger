@@ -61,6 +61,8 @@ func TestMakeModelCopy(t *testing.T) {
 		MepsLanguage:   sql.NullInt32{Int32: 7, Valid: true},
 		LocationType:   8,
 		Title:          sql.NullString{String: "ThisTitleShouldNotBeInUniqueKey", Valid: true},
+		Specialty:      sql.NullString{String: "E", Valid: true},
+		Edition:        sql.NullString{String: "r2025", Valid: true},
 	}
 	locCp := MakeModelCopy(loc)
 	assert.Equal(t, loc, locCp)

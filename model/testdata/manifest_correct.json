@@ -4,7 +4,7 @@
     "lastModifiedDate": "2020-04-09T05:47:26+02:00",
     "hash": "d87a67028133cc4de5536affe1b072841def95899b7f7450a5622112b4b5e63f",
     "databaseName": "userData.db",
-    "schemaVersion": 14,
+    "schemaVersion": 16,
     "deviceName": "iPhone"
   },
   "name": "UserDataBackup_2020-04-11_iPhone",

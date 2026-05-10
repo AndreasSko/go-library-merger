@@ -61,9 +61,39 @@ func TestLocation_UniqueKey(t *testing.T) {
 		Title:          sql.NullString{String: "ThisOTitleShouldNotBeInUniqueKeyEither", Valid: true},
 	}
 
-	assert.Equal(t, "2_3_4_5_6_nwtsty_7_8", m1.UniqueKey())
-	assert.Equal(t, "0_0_0_0_6__7_8", m2.UniqueKey())
-	assert.Equal(t, "0_0_0_0_6__!_8", m3.UniqueKey())
+	assert.Equal(t, "2_3_4_5_6_nwtsty_7_8_!_!", m1.UniqueKey())
+	assert.Equal(t, "0_0_0_0_6__7_8_!_!", m2.UniqueKey())
+	assert.Equal(t, "0_0_0_0_6__!_8_!_!", m3.UniqueKey())
+
+	// Specialty and Edition appear in the key and distinguish otherwise identical locations
+	withSpecialty := &Location{
+		IssueTagNumber: 6,
+		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
+		MepsLanguage:   sql.NullInt32{Int32: 7, Valid: true},
+		LocationType:   8,
+		Specialty:      sql.NullString{String: "E", Valid: true},
+	}
+	withEdition := &Location{
+		IssueTagNumber: 6,
+		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
+		MepsLanguage:   sql.NullInt32{Int32: 7, Valid: true},
+		LocationType:   8,
+		Edition:        sql.NullString{String: "r2025", Valid: true},
+	}
+	withBoth := &Location{
+		IssueTagNumber: 6,
+		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
+		MepsLanguage:   sql.NullInt32{Int32: 7, Valid: true},
+		LocationType:   8,
+		Specialty:      sql.NullString{String: "E", Valid: true},
+		Edition:        sql.NullString{String: "r2025", Valid: true},
+	}
+
+	assert.Equal(t, "0_0_0_0_6_nwtsty_7_8_E_!", withSpecialty.UniqueKey())
+	assert.Equal(t, "0_0_0_0_6_nwtsty_7_8_!_r2025", withEdition.UniqueKey())
+	assert.Equal(t, "0_0_0_0_6_nwtsty_7_8_E_r2025", withBoth.UniqueKey())
+	assert.NotEqual(t, withSpecialty.UniqueKey(), withEdition.UniqueKey())
+	assert.NotEqual(t, withSpecialty.UniqueKey(), withBoth.UniqueKey())
 }
 
 func TestLocation_PrettyPrint(t *testing.T) {
@@ -151,6 +181,53 @@ func TestLocation_Equals(t *testing.T) {
 
 	assert.True(t, m1.Equals(m1_1))
 	assert.False(t, m1.Equals(m2))
+
+	// Specialty and Edition are part of equality
+	withSpecialty := &Location{
+		LocationID:     1,
+		BookNumber:     sql.NullInt32{Int32: 2, Valid: true},
+		ChapterNumber:  sql.NullInt32{Int32: 3, Valid: true},
+		IssueTagNumber: 6,
+		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
+		MepsLanguage:   sql.NullInt32{Int32: 7, Valid: true},
+		LocationType:   8,
+		Specialty:      sql.NullString{String: "E", Valid: true},
+	}
+	withSameSpecialty := &Location{
+		LocationID:     1,
+		BookNumber:     sql.NullInt32{Int32: 2, Valid: true},
+		ChapterNumber:  sql.NullInt32{Int32: 3, Valid: true},
+		IssueTagNumber: 6,
+		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
+		MepsLanguage:   sql.NullInt32{Int32: 7, Valid: true},
+		LocationType:   8,
+		Specialty:      sql.NullString{String: "E", Valid: true},
+	}
+	withDifferentSpecialty := &Location{
+		LocationID:     1,
+		BookNumber:     sql.NullInt32{Int32: 2, Valid: true},
+		ChapterNumber:  sql.NullInt32{Int32: 3, Valid: true},
+		IssueTagNumber: 6,
+		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
+		MepsLanguage:   sql.NullInt32{Int32: 7, Valid: true},
+		LocationType:   8,
+		Specialty:      sql.NullString{String: "F", Valid: true},
+	}
+	withEdition := &Location{
+		LocationID:     1,
+		BookNumber:     sql.NullInt32{Int32: 2, Valid: true},
+		ChapterNumber:  sql.NullInt32{Int32: 3, Valid: true},
+		IssueTagNumber: 6,
+		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
+		MepsLanguage:   sql.NullInt32{Int32: 7, Valid: true},
+		LocationType:   8,
+		Edition:        sql.NullString{String: "r2025", Valid: true},
+	}
+
+	assert.True(t, withSpecialty.Equals(withSameSpecialty))
+	assert.False(t, withSpecialty.Equals(withDifferentSpecialty))
+	assert.False(t, withSpecialty.Equals(withEdition))
+	assert.False(t, m1.Equals(withSpecialty))
 }
 
 func TestLocation_RelatedEntries(t *testing.T) {
@@ -188,6 +265,22 @@ func TestLocation_MarshalJSON(t *testing.T) {
 	result, err := json.Marshal(m1)
 	assert.NoError(t, err)
 	assert.Equal(t,
-		`{"type":"Location","locationId":1,"bookNumber":{"Int32":2,"Valid":true},"chapterNumber":{"Int32":3,"Valid":true},"documentId":{"Int32":4,"Valid":true},"track":{"Int32":5,"Valid":true},"issueTagNumber":6,"keySymbol":{"String":"nwtsty","Valid":true},"mepsLanguage":{"Int32":7,"Valid":true},"locationType":8,"title":{"String":"ThisTitleShouldNotBeInUniqueKey","Valid":true}}`,
+		`{"type":"Location","locationId":1,"bookNumber":{"Int32":2,"Valid":true},"chapterNumber":{"Int32":3,"Valid":true},"documentId":{"Int32":4,"Valid":true},"track":{"Int32":5,"Valid":true},"issueTagNumber":6,"keySymbol":{"String":"nwtsty","Valid":true},"mepsLanguage":{"Int32":7,"Valid":true},"locationType":8,"title":{"String":"ThisTitleShouldNotBeInUniqueKey","Valid":true},"specialty":{"String":"","Valid":false},"edition":{"String":"","Valid":false}}`,
+		string(result))
+
+	m2 := &Location{
+		LocationID:     1,
+		IssueTagNumber: 0,
+		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
+		MepsLanguage:   sql.NullInt32{Int32: 2, Valid: true},
+		LocationType:   0,
+		Specialty:      sql.NullString{String: "E", Valid: true},
+		Edition:        sql.NullString{String: "r2025", Valid: true},
+	}
+
+	result, err = json.Marshal(m2)
+	assert.NoError(t, err)
+	assert.Equal(t,
+		`{"type":"Location","locationId":1,"bookNumber":{"Int32":0,"Valid":false},"chapterNumber":{"Int32":0,"Valid":false},"documentId":{"Int32":0,"Valid":false},"track":{"Int32":0,"Valid":false},"issueTagNumber":0,"keySymbol":{"String":"nwtsty","Valid":true},"mepsLanguage":{"Int32":2,"Valid":true},"locationType":0,"title":{"String":"","Valid":false},"specialty":{"String":"E","Valid":true},"edition":{"String":"r2025","Valid":true}}`,
 		string(result))
 }

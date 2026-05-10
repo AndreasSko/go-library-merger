@@ -103,6 +103,8 @@ func MakeModelCopy(mdl Model) Model {
 			MepsLanguage:   mdl.MepsLanguage,
 			LocationType:   mdl.LocationType,
 			Title:          sql.NullString{String: mdl.Title.String, Valid: mdl.Title.Valid},
+			Specialty:      sql.NullString{String: mdl.Specialty.String, Valid: mdl.Specialty.Valid},
+			Edition:        sql.NullString{String: mdl.Edition.String, Valid: mdl.Edition.Valid},
 		}
 	case *Note:
 		mdl := mdl.(*Note)

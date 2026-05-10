@@ -15,8 +15,8 @@ import (
 
 const (
 	version                   = 1
-	supportedSchemaVersionMin = 13
-	supportedSchemaVersionMax = 14
+	supportedSchemaVersionMin = 16
+	supportedSchemaVersionMax = 16
 )
 
 type manifest struct {

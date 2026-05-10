@@ -311,7 +311,7 @@ func Test_fetchFromSQLite(t *testing.T) {
 	location, err := fetchFromSQLite(sqlite, &Location{})
 	assert.NoError(t, err)
 	assert.Len(t, location, 9)
-	assert.Equal(t, &Location{4, sql.NullInt32{Int32: 66, Valid: true}, sql.NullInt32{Int32: 21, Valid: true}, sql.NullInt32{}, sql.NullInt32{}, 0, sql.NullString{String: "nwtsty", Valid: true}, sql.NullInt32{Int32: 2, Valid: true}, 0, sql.NullString{String: "Offenbarung 21", Valid: true}}, location[4])
+	assert.Equal(t, &Location{4, sql.NullInt32{Int32: 66, Valid: true}, sql.NullInt32{Int32: 21, Valid: true}, sql.NullInt32{}, sql.NullInt32{}, 0, sql.NullString{String: "nwtsty", Valid: true}, sql.NullInt32{Int32: 2, Valid: true}, 0, sql.NullString{String: "Offenbarung 21", Valid: true}, sql.NullString{}, sql.NullString{}}, location[4])
 
 	note, err := fetchFromSQLite(sqlite, &Note{})
 	assert.NoError(t, err)
@@ -843,7 +843,7 @@ func TestDatabase_ExportJWLBackup(t *testing.T) {
 	assert.Equal(t, &InputField{8, "tt71", "First other..", 3}, db.InputField[3])
 
 	assert.Len(t, db.Location, 9)
-	assert.Equal(t, &Location{4, sql.NullInt32{Int32: 66, Valid: true}, sql.NullInt32{Int32: 21, Valid: true}, sql.NullInt32{}, sql.NullInt32{}, 0, sql.NullString{String: "nwtsty", Valid: true}, sql.NullInt32{Int32: 2, Valid: true}, 0, sql.NullString{String: "Offenbarung 21", Valid: true}}, db.Location[4])
+	assert.Equal(t, &Location{4, sql.NullInt32{Int32: 66, Valid: true}, sql.NullInt32{Int32: 21, Valid: true}, sql.NullInt32{}, sql.NullInt32{}, 0, sql.NullString{String: "nwtsty", Valid: true}, sql.NullInt32{Int32: 2, Valid: true}, 0, sql.NullString{String: "Offenbarung 21", Valid: true}, sql.NullString{}, sql.NullString{}}, db.Location[4])
 
 	assert.Len(t, db.Note, 3)
 	assert.Equal(t, &Note{2, "F75A18EE-FC17-4E0B-ABB6-CC16DABE9610", sql.NullInt32{Int32: 3, Valid: true}, sql.NullInt32{Int32: 3, Valid: true}, sql.NullString{String: "For all things I have the strength through the one who gives me power.", Valid: true}, sql.NullString{String: "", Valid: true}, "2020-04-14T18:42:14+00:00", "2020-04-14T18:42:14+00:00", 2, sql.NullInt32{Int32: 13, Valid: true}}, db.Note[2])
@@ -877,7 +877,7 @@ func Test_createEmptySQLiteDB(t *testing.T) {
 	}
 	hash := fmt.Sprintf("%x", hasher.Sum(nil))
 
-	assert.Equal(t, "78edd07c0b04212dcc2dd59be0a5d2edf91088136986378147cd8aa04cf4965c", hash)
+	assert.Equal(t, "37ea4cc3734847a874f83206d35c10f1f49f9c899f8263ac3f4461c8f2537710", hash)
 }
 
 func TestDatabase_saveToNewSQLite(t *testing.T) {
@@ -888,7 +888,10 @@ func TestDatabase_saveToNewSQLite(t *testing.T) {
 		BlockRange: []*BlockRange{{3, 2, 13, sql.NullInt32{Int32: 0, Valid: true}, sql.NullInt32{Int32: 14, Valid: true}, 3}},
 		Bookmark:   []*Bookmark{{2, 3, 7, 4, "Philippians 4", sql.NullString{String: "12 I know how to be low on provisions and how to have an abundance. In everything and in all circumstances I have learned the secret of both how to be full and how to hunger, both how to have an abundance and how to do without. ", Valid: true}, 0, sql.NullInt32{}}},
 		InputField: []*InputField{{8, "tt56", "First lesson completed on..", 1}, {8, "tt66", "1", 3}, {8, "tt71", "First other..", 3}},
-		Location:   []*Location{{4, sql.NullInt32{Int32: 66, Valid: true}, sql.NullInt32{Int32: 21, Valid: true}, sql.NullInt32{}, sql.NullInt32{}, 0, sql.NullString{String: "nwtsty", Valid: true}, sql.NullInt32{Int32: 2, Valid: true}, 0, sql.NullString{String: "Offenbarung 21", Valid: true}}},
+		Location: []*Location{
+			{4, sql.NullInt32{Int32: 66, Valid: true}, sql.NullInt32{Int32: 21, Valid: true}, sql.NullInt32{}, sql.NullInt32{}, 0, sql.NullString{String: "nwtsty", Valid: true}, sql.NullInt32{Int32: 2, Valid: true}, 0, sql.NullString{String: "Offenbarung 21", Valid: true}, sql.NullString{}, sql.NullString{}},
+			{5, sql.NullInt32{}, sql.NullInt32{}, sql.NullInt32{Int32: 2020401, Valid: true}, sql.NullInt32{}, 0, sql.NullString{String: "w", Valid: true}, sql.NullInt32{Int32: 2, Valid: true}, 0, sql.NullString{String: "A title", Valid: true}, sql.NullString{String: "E", Valid: true}, sql.NullString{String: "r2025", Valid: true}},
+		},
 		Note:       []*Note{{2, "F75A18EE-FC17-4E0B-ABB6-CC16DABE9610", sql.NullInt32{Int32: 3, Valid: true}, sql.NullInt32{Int32: 3, Valid: true}, sql.NullString{String: "For all things I have the strength through the one who gives me power.", Valid: true}, sql.NullString{String: "!", Valid: true}, "2020-04-14T18:42:14+00:00", "2020-04-14T18:42:14+00:00", 2, sql.NullInt32{Int32: 13, Valid: true}}},
 		Tag:        []*Tag{{2, 1, "Strengthening"}},
 		TagMap:     []*TagMap{{2, sql.NullInt32{Int32: 0, Valid: false}, sql.NullInt32{Int32: 0, Valid: false}, sql.NullInt32{Int32: 2, Valid: true}, 2, 1}},
@@ -904,6 +907,7 @@ func TestDatabase_saveToNewSQLite(t *testing.T) {
 	assert.Equal(t, db.Bookmark[0], db2.Bookmark[2])
 	assert.Equal(t, db.InputField[2], db2.InputField[3])
 	assert.Equal(t, db.Location[0], db2.Location[4])
+	assert.Equal(t, db.Location[1], db2.Location[5])
 	assert.Equal(t, db.Note[0], db2.Note[2])
 	assert.Equal(t, db.TagMap[0], db2.TagMap[2])
 	assert.Equal(t, db.UserMark[0], db2.UserMark[2])

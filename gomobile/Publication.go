@@ -9,7 +9,7 @@ import (
 // PublicationLookup represents a lookup for a publication.
 // It directly maps to publication.Lookup
 type PublicationLookup struct {
-	DocumentID     int
+	DocumentID     int64
 	KeySymbol      string
 	IssueTagNumber int
 	MepsLanguage   int

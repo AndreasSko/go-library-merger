@@ -493,7 +493,7 @@ var leftDB = &model.Database{
 		nil,
 		{
 			LocationID:   5,
-			DocumentID:   sql.NullInt32{1102021811, true},
+			DocumentID:   sql.NullInt64{1102021811, true},
 			KeySymbol:    sql.NullString{"lffi", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 			LocationType: 0,
@@ -663,7 +663,7 @@ var rightDB = &model.Database{
 		},
 		{
 			LocationID:   4,
-			DocumentID:   sql.NullInt32{1102021811, true},
+			DocumentID:   sql.NullInt64{1102021811, true},
 			KeySymbol:    sql.NullString{"lffi", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 			LocationType: 0,
@@ -843,7 +843,7 @@ var mergedAllLeftDB = &model.Database{
 		},
 		{
 			LocationID:   4,
-			DocumentID:   sql.NullInt32{1102021811, true},
+			DocumentID:   sql.NullInt64{1102021811, true},
 			KeySymbol:    sql.NullString{"lffi", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 			LocationType: 0,
@@ -1052,7 +1052,7 @@ var mergedAllRightDB = &model.Database{
 		},
 		{
 			LocationID:   4,
-			DocumentID:   sql.NullInt32{1102021811, true},
+			DocumentID:   sql.NullInt64{1102021811, true},
 			KeySymbol:    sql.NullString{"lffi", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 			LocationType: 0,
@@ -1207,7 +1207,7 @@ var leftNwtDB = &model.Database{
 		nil,
 		{
 			LocationID:   5,
-			DocumentID:   sql.NullInt32{1102021811, true},
+			DocumentID:   sql.NullInt64{1102021811, true},
 			KeySymbol:    sql.NullString{"lffi", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 			LocationType: 0,
@@ -1283,7 +1283,7 @@ var rightNwtDB = &model.Database{
 		},
 		{
 			LocationID:   4,
-			DocumentID:   sql.NullInt32{1102021811, true},
+			DocumentID:   sql.NullInt64{1102021811, true},
 			KeySymbol:    sql.NullString{"lffi", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 			LocationType: 0,
@@ -1359,7 +1359,7 @@ var mergedAllLeftNwtDB = &model.Database{
 		},
 		{
 			LocationID:   3,
-			DocumentID:   sql.NullInt32{1102021811, true},
+			DocumentID:   sql.NullInt64{1102021811, true},
 			KeySymbol:    sql.NullString{"lffi", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 			LocationType: 0,
@@ -1440,13 +1440,13 @@ var leftDBNwtWithDifferentDocID = &model.Database{
 		nil,
 		{
 			LocationID:   1,
-			DocumentID:   sql.NullInt32{1102021811, true},
+			DocumentID:   sql.NullInt64{1102021811, true},
 			KeySymbol:    sql.NullString{"lffi", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 		},
 		{
 			LocationID:   2,
-			DocumentID:   sql.NullInt32{123456789, true},
+			DocumentID:   sql.NullInt64{123456789, true},
 			KeySymbol:    sql.NullString{"nwtsty", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 		},
@@ -1519,7 +1519,7 @@ var rightDBNwtWithDifferentDocID = &model.Database{
 		nil,
 		{
 			LocationID:   1,
-			DocumentID:   sql.NullInt32{987654332, true},
+			DocumentID:   sql.NullInt64{987654332, true},
 			KeySymbol:    sql.NullString{"nwt", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 		},
@@ -1599,19 +1599,19 @@ var mergedDBNwtWithDifferentDocID = &model.Database{
 		nil,
 		{
 			LocationID:   1,
-			DocumentID:   sql.NullInt32{1102021811, true},
+			DocumentID:   sql.NullInt64{1102021811, true},
 			KeySymbol:    sql.NullString{"lffi", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 		},
 		{
 			LocationID:   2,
-			DocumentID:   sql.NullInt32{123456789, true},
+			DocumentID:   sql.NullInt64{123456789, true},
 			KeySymbol:    sql.NullString{"nwtsty", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 		},
 		{
 			LocationID:   3,
-			DocumentID:   sql.NullInt32{987654332, true},
+			DocumentID:   sql.NullInt64{987654332, true},
 			KeySymbol:    sql.NullString{"nwt", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 		},
@@ -1713,7 +1713,7 @@ var leftDBEmptyBR = &model.Database{
 		nil,
 		{
 			LocationID:   5,
-			DocumentID:   sql.NullInt32{1102021811, true},
+			DocumentID:   sql.NullInt64{1102021811, true},
 			KeySymbol:    sql.NullString{"lffi", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 			LocationType: 0,
@@ -1891,7 +1891,7 @@ var RightDBEmptyBR = &model.Database{
 		},
 		{
 			LocationID:   4,
-			DocumentID:   sql.NullInt32{1102021811, true},
+			DocumentID:   sql.NullInt64{1102021811, true},
 			KeySymbol:    sql.NullString{"lffi", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 			LocationType: 0,
@@ -2079,7 +2079,7 @@ var mergedAllLeftDBEmptyBR = &model.Database{
 		},
 		{
 			LocationID:   4,
-			DocumentID:   sql.NullInt32{1102021811, true},
+			DocumentID:   sql.NullInt64{1102021811, true},
 			KeySymbol:    sql.NullString{"lffi", true},
 			MepsLanguage: sql.NullInt32{Int32: 2, Valid: true},
 			LocationType: 0,

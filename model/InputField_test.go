@@ -75,7 +75,7 @@ func TestInputField_RelatedEntries(t *testing.T) {
 			nil,
 			{
 				LocationID: 3,
-				DocumentID: sql.NullInt32{12345, true},
+				DocumentID: sql.NullInt64{12345, true},
 				KeySymbol:  sql.NullString{"lffi", true},
 			},
 		},

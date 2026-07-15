@@ -12,7 +12,7 @@ type Location struct {
 	LocationID     int
 	BookNumber     sql.NullInt32
 	ChapterNumber  sql.NullInt32
-	DocumentID     sql.NullInt32
+	DocumentID     sql.NullInt64
 	Track          sql.NullInt32
 	IssueTagNumber int
 	KeySymbol      sql.NullString
@@ -42,7 +42,7 @@ func (m *Location) UniqueKey() string {
 	sb.WriteString("_")
 	sb.WriteString(strconv.FormatInt(int64(m.ChapterNumber.Int32), 10))
 	sb.WriteString("_")
-	sb.WriteString(strconv.FormatInt(int64(m.DocumentID.Int32), 10))
+	sb.WriteString(strconv.FormatInt(m.DocumentID.Int64, 10))
 	sb.WriteString("_")
 	sb.WriteString(strconv.FormatInt(int64(m.Track.Int32), 10))
 	sb.WriteString("_")
@@ -77,7 +77,7 @@ func (m *Location) Equals(m2 Model) bool {
 	if m2, ok := m2.(*Location); ok {
 		return m.BookNumber.Int32 == m2.BookNumber.Int32 &&
 			m.ChapterNumber.Int32 == m2.ChapterNumber.Int32 &&
-			m.DocumentID.Int32 == m2.DocumentID.Int32 &&
+			m.DocumentID.Int64 == m2.DocumentID.Int64 &&
 			m.Track.Int32 == m2.Track.Int32 &&
 			m.IssueTagNumber == m2.IssueTagNumber &&
 			m.KeySymbol.String == m2.KeySymbol.String &&
@@ -110,7 +110,7 @@ func (m Location) MarshalJSON() ([]byte, error) {
 		LocationID     int            `json:"locationId"`
 		BookNumber     sql.NullInt32  `json:"bookNumber"`
 		ChapterNumber  sql.NullInt32  `json:"chapterNumber"`
-		DocumentID     sql.NullInt32  `json:"documentId"`
+		DocumentID     sql.NullInt64  `json:"documentId"`
 		Track          sql.NullInt32  `json:"track"`
 		IssueTagNumber int            `json:"issueTagNumber"`
 		KeySymbol      sql.NullString `json:"keySymbol"`

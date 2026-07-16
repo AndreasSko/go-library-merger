@@ -52,6 +52,23 @@ There are two kinds of test fixtures that need updating:
 After migrating, update any hardcoded hashes (e.g. in
 `Test_createEmptySQLiteDB`) by running `sha256sum` on the new file.
 
+When manually changing `userData.db` inside a packaged backup, also replace
+`userDataBackup.hash` in `manifest.json` with the database's SHA-256 digest.
+Otherwise, JW Library and the iOS app reject the backup.
+
+## iOS binding
+
+The sibling `ios-jwlm` repository checks in the generated
+`Gomobile.xcframework`. Changes to exported Gomobile APIs or model JSON require
+matching Swift changes and a rebuilt framework:
+
+```
+gomobile bind -target=ios -o ../ios-jwlm/Gomobile.xcframework ./gomobile
+```
+
+Record the source Go commit in the iOS PR. Merge or release the Go change before
+the dependent iOS change.
+
 ## Manual end-to-end testing
 
 ```
@@ -62,7 +79,8 @@ go run . merge left.jwlibrary right.jwlibrary merged.jwlibrary \
 
 Merging a backup with the empty `new.jwlibrary` is a useful round-trip
 smoke test. Merging a backup with itself should produce identical row counts
-with no duplicates.
+with no duplicates. For modified-ID tests, inspect the merged database and
+verify its SHA-256 digest matches the exported manifest.
 
 ## Running tests
 

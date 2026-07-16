@@ -21,12 +21,30 @@ func TestLocation_SetID(t *testing.T) {
 	assert.Equal(t, 20, m2.LocationID)
 }
 
+func TestLocation_ScanDocumentIDBeyondInt32(t *testing.T) {
+	const documentID int64 = 4052170279
+
+	db, err := sql.Open("sqlite3", ":memory:")
+	assert.NoError(t, err)
+	defer db.Close()
+
+	rows, err := db.Query(`SELECT
+		1, NULL, NULL, ?, NULL, 0, NULL, NULL, 0, NULL, NULL, NULL`, documentID)
+	assert.NoError(t, err)
+	defer rows.Close()
+	assert.True(t, rows.Next())
+
+	result, err := (&Location{}).scanRow(rows)
+	assert.NoError(t, err)
+	assert.Equal(t, sql.NullInt64{Int64: documentID, Valid: true}, result.(*Location).DocumentID)
+}
+
 func TestLocation_UniqueKey(t *testing.T) {
 	m1 := &Location{
 		LocationID:     1,
 		BookNumber:     sql.NullInt32{Int32: 2, Valid: true},
 		ChapterNumber:  sql.NullInt32{Int32: 3, Valid: true},
-		DocumentID:     sql.NullInt32{Int32: 4, Valid: true},
+		DocumentID:     sql.NullInt64{Int64: 4, Valid: true},
 		Track:          sql.NullInt32{Int32: 5, Valid: true},
 		IssueTagNumber: 6,
 		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
@@ -39,7 +57,7 @@ func TestLocation_UniqueKey(t *testing.T) {
 		LocationID:     1,
 		BookNumber:     sql.NullInt32{},
 		ChapterNumber:  sql.NullInt32{},
-		DocumentID:     sql.NullInt32{},
+		DocumentID:     sql.NullInt64{},
 		Track:          sql.NullInt32{},
 		IssueTagNumber: 6,
 		KeySymbol:      sql.NullString{},
@@ -52,7 +70,7 @@ func TestLocation_UniqueKey(t *testing.T) {
 		LocationID:     1,
 		BookNumber:     sql.NullInt32{},
 		ChapterNumber:  sql.NullInt32{},
-		DocumentID:     sql.NullInt32{},
+		DocumentID:     sql.NullInt64{},
 		Track:          sql.NullInt32{},
 		IssueTagNumber: 6,
 		KeySymbol:      sql.NullString{},
@@ -101,7 +119,7 @@ func TestLocation_PrettyPrint(t *testing.T) {
 		LocationID:     1,
 		BookNumber:     sql.NullInt32{Int32: 2, Valid: true},
 		ChapterNumber:  sql.NullInt32{Int32: 3, Valid: true},
-		DocumentID:     sql.NullInt32{Int32: 4, Valid: true},
+		DocumentID:     sql.NullInt64{Int64: 4, Valid: true},
 		Track:          sql.NullInt32{Int32: 5, Valid: true},
 		IssueTagNumber: 6,
 		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
@@ -146,7 +164,7 @@ func TestLocation_Equals(t *testing.T) {
 		LocationID:     1,
 		BookNumber:     sql.NullInt32{Int32: 2, Valid: true},
 		ChapterNumber:  sql.NullInt32{Int32: 3, Valid: true},
-		DocumentID:     sql.NullInt32{Int32: 4, Valid: true},
+		DocumentID:     sql.NullInt64{Int64: 4, Valid: true},
 		Track:          sql.NullInt32{Int32: 5, Valid: true},
 		IssueTagNumber: 6,
 		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
@@ -158,7 +176,7 @@ func TestLocation_Equals(t *testing.T) {
 		LocationID:     1,
 		BookNumber:     sql.NullInt32{Int32: 2, Valid: true},
 		ChapterNumber:  sql.NullInt32{Int32: 3, Valid: true},
-		DocumentID:     sql.NullInt32{Int32: 4, Valid: true},
+		DocumentID:     sql.NullInt64{Int64: 4, Valid: true},
 		Track:          sql.NullInt32{Int32: 5, Valid: true},
 		IssueTagNumber: 6,
 		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
@@ -170,7 +188,7 @@ func TestLocation_Equals(t *testing.T) {
 		LocationID:     1,
 		BookNumber:     sql.NullInt32{},
 		ChapterNumber:  sql.NullInt32{},
-		DocumentID:     sql.NullInt32{},
+		DocumentID:     sql.NullInt64{},
 		Track:          sql.NullInt32{},
 		IssueTagNumber: 6,
 		KeySymbol:      sql.NullString{},
@@ -235,7 +253,7 @@ func TestLocation_RelatedEntries(t *testing.T) {
 		LocationID:     1,
 		BookNumber:     sql.NullInt32{Int32: 2, Valid: true},
 		ChapterNumber:  sql.NullInt32{Int32: 3, Valid: true},
-		DocumentID:     sql.NullInt32{Int32: 4, Valid: true},
+		DocumentID:     sql.NullInt64{Int64: 4, Valid: true},
 		Track:          sql.NullInt32{Int32: 5, Valid: true},
 		IssueTagNumber: 6,
 		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
@@ -253,7 +271,7 @@ func TestLocation_MarshalJSON(t *testing.T) {
 		LocationID:     1,
 		BookNumber:     sql.NullInt32{Int32: 2, Valid: true},
 		ChapterNumber:  sql.NullInt32{Int32: 3, Valid: true},
-		DocumentID:     sql.NullInt32{Int32: 4, Valid: true},
+		DocumentID:     sql.NullInt64{Int64: 4, Valid: true},
 		Track:          sql.NullInt32{Int32: 5, Valid: true},
 		IssueTagNumber: 6,
 		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},
@@ -265,7 +283,7 @@ func TestLocation_MarshalJSON(t *testing.T) {
 	result, err := json.Marshal(m1)
 	assert.NoError(t, err)
 	assert.Equal(t,
-		`{"type":"Location","locationId":1,"bookNumber":{"Int32":2,"Valid":true},"chapterNumber":{"Int32":3,"Valid":true},"documentId":{"Int32":4,"Valid":true},"track":{"Int32":5,"Valid":true},"issueTagNumber":6,"keySymbol":{"String":"nwtsty","Valid":true},"mepsLanguage":{"Int32":7,"Valid":true},"locationType":8,"title":{"String":"ThisTitleShouldNotBeInUniqueKey","Valid":true},"specialty":{"String":"","Valid":false},"edition":{"String":"","Valid":false}}`,
+		`{"type":"Location","locationId":1,"bookNumber":{"Int32":2,"Valid":true},"chapterNumber":{"Int32":3,"Valid":true},"documentId":{"Int64":4,"Valid":true},"track":{"Int32":5,"Valid":true},"issueTagNumber":6,"keySymbol":{"String":"nwtsty","Valid":true},"mepsLanguage":{"Int32":7,"Valid":true},"locationType":8,"title":{"String":"ThisTitleShouldNotBeInUniqueKey","Valid":true},"specialty":{"String":"","Valid":false},"edition":{"String":"","Valid":false}}`,
 		string(result))
 
 	m2 := &Location{
@@ -281,6 +299,6 @@ func TestLocation_MarshalJSON(t *testing.T) {
 	result, err = json.Marshal(m2)
 	assert.NoError(t, err)
 	assert.Equal(t,
-		`{"type":"Location","locationId":1,"bookNumber":{"Int32":0,"Valid":false},"chapterNumber":{"Int32":0,"Valid":false},"documentId":{"Int32":0,"Valid":false},"track":{"Int32":0,"Valid":false},"issueTagNumber":0,"keySymbol":{"String":"nwtsty","Valid":true},"mepsLanguage":{"Int32":2,"Valid":true},"locationType":0,"title":{"String":"","Valid":false},"specialty":{"String":"E","Valid":true},"edition":{"String":"r2025","Valid":true}}`,
+		`{"type":"Location","locationId":1,"bookNumber":{"Int32":0,"Valid":false},"chapterNumber":{"Int32":0,"Valid":false},"documentId":{"Int64":0,"Valid":false},"track":{"Int32":0,"Valid":false},"issueTagNumber":0,"keySymbol":{"String":"nwtsty","Valid":true},"mepsLanguage":{"Int32":2,"Valid":true},"locationType":0,"title":{"String":"","Valid":false},"specialty":{"String":"E","Valid":true},"edition":{"String":"r2025","Valid":true}}`,
 		string(result))
 }

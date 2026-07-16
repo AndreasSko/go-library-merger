@@ -54,7 +54,7 @@ func TestMakeModelCopy(t *testing.T) {
 		LocationID:     1,
 		BookNumber:     sql.NullInt32{Int32: 2, Valid: true},
 		ChapterNumber:  sql.NullInt32{Int32: 3, Valid: true},
-		DocumentID:     sql.NullInt32{Int32: 4, Valid: true},
+		DocumentID:     sql.NullInt64{Int64: 4, Valid: true},
 		Track:          sql.NullInt32{Int32: 5, Valid: true},
 		IssueTagNumber: 6,
 		KeySymbol:      sql.NullString{String: "nwtsty", Valid: true},

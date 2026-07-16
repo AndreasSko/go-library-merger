@@ -96,7 +96,7 @@ func MakeModelCopy(mdl Model) Model {
 			LocationID:     mdl.LocationID,
 			BookNumber:     sql.NullInt32{Int32: mdl.BookNumber.Int32, Valid: mdl.BookNumber.Valid},
 			ChapterNumber:  sql.NullInt32{Int32: mdl.ChapterNumber.Int32, Valid: mdl.ChapterNumber.Valid},
-			DocumentID:     sql.NullInt32{Int32: mdl.DocumentID.Int32, Valid: mdl.DocumentID.Valid},
+			DocumentID:     sql.NullInt64{Int64: mdl.DocumentID.Int64, Valid: mdl.DocumentID.Valid},
 			Track:          sql.NullInt32{Int32: mdl.Track.Int32, Valid: mdl.Track.Valid},
 			IssueTagNumber: mdl.IssueTagNumber,
 			KeySymbol:      sql.NullString{String: mdl.KeySymbol.String, Valid: mdl.KeySymbol.Valid},
@@ -190,6 +190,11 @@ Loop:
 		case int:
 			fmt.Fprintf(w, "\n%s:\t%d", fieldName, field.Int())
 		case sql.NullInt32:
+			if field.Field(1).Bool() == false {
+				continue Loop
+			}
+			fmt.Fprintf(w, "\n%s:\t%d", fieldName, field.Field(0).Int())
+		case sql.NullInt64:
 			if field.Field(1).Bool() == false {
 				continue Loop
 			}

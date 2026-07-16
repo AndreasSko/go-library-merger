@@ -35,7 +35,7 @@ type Publication struct {
 // Lookup represents a lookup for a publication.
 // This query can contain various fields.
 type Lookup struct {
-	DocumentID     int
+	DocumentID     int64
 	KeySymbol      string
 	IssueTagNumber int
 	MepsLanguage   int

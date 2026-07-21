@@ -13,7 +13,7 @@ jobs:
         with:
           go-version: '1.25'
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
       - name: Run tests
         run: go test -covermode atomic -coverprofile=profile.cov ./...
       - name: Convert .cov to lcov

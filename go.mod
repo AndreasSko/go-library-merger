@@ -10,6 +10,7 @@ require (
 	github.com/buger/goterm v1.0.4
 	github.com/cavaliercoder/grab v1.0.1-0.20201108051000-98a5bfe305ec
 	github.com/codeclysm/extract/v3 v3.1.1
+	github.com/codeclysm/extract/v4 v4.0.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/jedib0t/go-pretty v4.3.0+incompatible
 	github.com/klauspost/compress v1.18.6

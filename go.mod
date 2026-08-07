@@ -1,6 +1,6 @@
 module github.com/AndreasSko/go-library-merger
 
-go 1.25.0
+go 1.25
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.7

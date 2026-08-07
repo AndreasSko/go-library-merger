@@ -22,7 +22,7 @@ jobs:
                     -v $GITHUB_WORKSPACE:/go/src/github.com/AndreasSko/go-library-merger 
                     -v /var/run/docker.sock:/var/run/docker.sock 
                     -w /go/src/github.com/AndreasSko/go-library-merger 
-                    goreleaser/goreleaser-cross:v1.20 
+                    goreleaser/goreleaser-cross:v1.25
                     --skip-publish
                     --skip-validate
         if: ${{ github.event_name == 'pull_request' }}
@@ -36,5 +36,5 @@ jobs:
                     -v $GITHUB_WORKSPACE:/go/src/github.com/AndreasSko/go-library-merger 
                     -v /var/run/docker.sock:/var/run/docker.sock 
                     -w /go/src/github.com/AndreasSko/go-library-merger 
-                    goreleaser/goreleaser-cross:v1.20 
+                    goreleaser/goreleaser-cross:v1.25
         if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}

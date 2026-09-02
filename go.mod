@@ -12,7 +12,7 @@ require (
 	github.com/codeclysm/extract/v3 v3.1.1
 	github.com/davecgh/go-spew v1.1.1
 	github.com/jedib0t/go-pretty v4.3.0+incompatible
-	github.com/klauspost/compress v1.18.6
+	github.com/klauspost/compress v1.20.0
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/mitchellh/go-wordwrap v1.0.1

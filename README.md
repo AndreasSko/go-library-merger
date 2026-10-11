@@ -147,9 +147,14 @@ before releasing this feature; this change does not update the iOS repository.
 
 ### Lint scope
 
-CI pins golangci-lint to v2.14.0 and reviewdog to v0.21.0. The lint gate uses
-`--new-from-rev=origin/master` with complete baseline history and fails on new
-diagnostics. Existing diagnostics on unchanged master lines are excluded from
-this PR gate; a green gate does not mean the whole repository is lint-clean.
+CI pins golangci-lint to v2.14.0 and reviewdog to v0.21.0. Pull requests
+compare against their base commit; pushes compare against the previous branch
+tip. This also checks new diagnostics after a merge to master. New branches
+fall back to their merge base, and an initial repository push checks all code.
+Stdout annotations work with read-only tokens from fork pull requests.
+
+Existing diagnostics on unchanged baseline lines are excluded from this gate;
+a green gate does not mean the whole repository is lint-clean.
 Run `golangci-lint run` for the complete debt inventory, or
-`golangci-lint run --new-from-rev=origin/master` to reproduce the CI scope.
+`golangci-lint run --new-from-rev=origin/master` to reproduce a PR's scope
+locally against current master.

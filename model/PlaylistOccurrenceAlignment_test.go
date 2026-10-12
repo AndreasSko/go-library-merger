@@ -41,107 +41,51 @@ func occurrences(db *Database) []int {
 	return result
 }
 
-func TestAlignPlaylistItemOccurrencesInsertions(t *testing.T) {
-	old1 := occurrenceSpec{action: 0, start: 0, duration: 9}
-	old2 := occurrenceSpec{action: 2, start: 10, duration: 9}
+func TestAlignPlaylistItemOccurrences(t *testing.T) {
+	first := occurrenceSpec{action: 0, start: 0, duration: 9}
+	second := occurrenceSpec{action: 2, start: 10, duration: 9}
 	inserted := occurrenceSpec{action: 3, start: 20, duration: 9}
+	edited := occurrenceSpec{action: 1, start: 11, duration: 10}
+	duplicateEdit := occurrenceSpec{action: 1, start: 10, duration: 9}
 	tests := []struct {
 		name        string
 		left, right *Database
-		wantRight   []int
+		wantRight   []int // nil means the alignment is ambiguous and must fail.
 	}{
-		{"front", occurrenceDB(old1, old2), occurrenceDB(inserted, old1, old2), []int{2, 0, 1}},
-		{"middle", occurrenceDB(old1, old2), occurrenceDB(old1, inserted, old2), []int{0, 2, 1}},
-		{"end", occurrenceDB(old1, old2), occurrenceDB(old1, old2, inserted), []int{0, 1, 2}},
-		{"two in one gap", occurrenceDB(old1, old2), occurrenceDB(old1, inserted, occurrenceSpec{action: 1, start: 30, duration: 9}, old2), []int{0, 2, 3, 1}},
-		{"reverse inputs", occurrenceDB(inserted, old1, old2), occurrenceDB(old1, old2), []int{1, 2}},
+		{"front insertion", occurrenceDB(first, second), occurrenceDB(inserted, first, second), []int{2, 0, 1}},
+		{"middle insertion", occurrenceDB(first, second), occurrenceDB(first, inserted, second), []int{0, 2, 1}},
+		{"end insertion", occurrenceDB(first, second), occurrenceDB(first, second, inserted), []int{0, 1, 2}},
+		{"two insertions in one gap", occurrenceDB(first, second), occurrenceDB(first, inserted, occurrenceSpec{action: 1, start: 30, duration: 9}, second), []int{0, 2, 3, 1}},
+		{"reverse insertion", occurrenceDB(inserted, first, second), occurrenceDB(first, second), []int{1, 2}},
+		{"settings edits keep ordinal identity", occurrenceDB(first, second), occurrenceDB(occurrenceSpec{action: 1, start: 0, duration: 9}, occurrenceSpec{action: 3, start: 10, duration: 10}), []int{0, 1}},
+		{"equal counts ignore settings reorder", occurrenceDB(first, second), occurrenceDB(second, first), []int{0, 1}},
+		{"mapping duration anchors insertion", occurrenceDB(occurrenceSpec{duration: 10}, occurrenceSpec{duration: 20}), occurrenceDB(occurrenceSpec{duration: 30}, occurrenceSpec{duration: 10}, occurrenceSpec{duration: 20}), []int{2, 0, 1}},
+		{"insertion beside unanchored edit", occurrenceDB(first, second), occurrenceDB(first, inserted, edited), nil},
+		{"duplicate anchor and unmatched edits", occurrenceDB(first, first), occurrenceDB(first, duplicateEdit, duplicateEdit), nil},
+		{"reverse duplicate anchor and unmatched edits", occurrenceDB(first, duplicateEdit, duplicateEdit), occurrenceDB(first, first), nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := AlignPlaylistItemOccurrences(tc.left, tc.right); err != nil {
+			err := AlignPlaylistItemOccurrences(tc.left, tc.right)
+			if tc.wantRight == nil {
+				if err == nil {
+					t.Fatal("expected ambiguous alignment to be rejected")
+				}
+				return
+			}
+			if err != nil {
 				t.Fatal(err)
 			}
 			if got := occurrences(tc.right); !reflect.DeepEqual(got, tc.wantRight) {
 				t.Fatalf("occurrences = %v, want %v", got, tc.wantRight)
 			}
+			if err := AlignPlaylistItemOccurrences(tc.left, tc.right); err != nil {
+				t.Fatal(err)
+			}
+			if got := occurrences(tc.right); !reflect.DeepEqual(got, tc.wantRight) {
+				t.Fatalf("repeat alignment = %v, want %v", got, tc.wantRight)
+			}
 		})
-	}
-}
-
-func TestAlignPlaylistItemOccurrencesKeepsEditsAsSameOccurrence(t *testing.T) {
-	left := occurrenceDB(
-		occurrenceSpec{action: 0, start: 0, duration: 9},
-		occurrenceSpec{action: 2, start: 10, duration: 9},
-	)
-	right := occurrenceDB(
-		occurrenceSpec{action: 1, start: 0, duration: 9},
-		occurrenceSpec{action: 3, start: 10, duration: 10},
-	)
-	if err := AlignPlaylistItemOccurrences(left, right); err != nil {
-		t.Fatal(err)
-	}
-	if got := occurrences(right); !reflect.DeepEqual(got, []int{0, 1}) {
-		t.Fatalf("edited occurrences = %v", got)
-	}
-}
-
-func TestAlignPlaylistItemOccurrencesDoesNotUseSettingsToReorderEqualCounts(t *testing.T) {
-	first := occurrenceSpec{action: 0, start: 0, duration: 9}
-	second := occurrenceSpec{action: 2, start: 10, duration: 9}
-	left := occurrenceDB(first, second)
-	right := occurrenceDB(second, first)
-	if err := AlignPlaylistItemOccurrences(left, right); err != nil {
-		t.Fatal(err)
-	}
-	if got := occurrences(right); !reflect.DeepEqual(got, []int{0, 1}) {
-		t.Fatalf("equal-count reorder changed ordinal identity: %v", got)
-	}
-}
-
-func TestAlignPlaylistItemOccurrencesUsesMappingDurationAsAnchor(t *testing.T) {
-	left := occurrenceDB(occurrenceSpec{duration: 10}, occurrenceSpec{duration: 20})
-	right := occurrenceDB(occurrenceSpec{duration: 30}, occurrenceSpec{duration: 10}, occurrenceSpec{duration: 20})
-	if err := AlignPlaylistItemOccurrences(left, right); err != nil {
-		t.Fatal(err)
-	}
-	if got := occurrences(right); !reflect.DeepEqual(got, []int{2, 0, 1}) {
-		t.Fatalf("duration-aligned occurrences = %v", got)
-	}
-	before := occurrences(right)
-	if err := AlignPlaylistItemOccurrences(left, right); err != nil {
-		t.Fatal(err)
-	}
-	if got := occurrences(right); !reflect.DeepEqual(got, before) {
-		t.Fatalf("repeat alignment changed %v to %v", before, got)
-	}
-}
-
-func TestAlignPlaylistItemOccurrencesRejectsInsertionAdjacentToUnanchoredEdit(t *testing.T) {
-	left := occurrenceDB(
-		occurrenceSpec{action: 0, start: 0, duration: 9},
-		occurrenceSpec{action: 2, start: 10, duration: 9},
-	)
-	right := occurrenceDB(
-		occurrenceSpec{action: 0, start: 0, duration: 9},
-		occurrenceSpec{action: 3, start: 20, duration: 9},
-		occurrenceSpec{action: 1, start: 11, duration: 10},
-	)
-	if err := AlignPlaylistItemOccurrences(left, right); err == nil {
-		t.Fatal("expected ambiguous insertion/edit to be rejected")
-	}
-}
-
-func TestAlignPlaylistItemOccurrencesRejectsDuplicateAnchorWithUnmatchedEdit(t *testing.T) {
-	old := occurrenceSpec{action: 0, start: 0, duration: 9}
-	edited := occurrenceSpec{action: 1, start: 10, duration: 9}
-	for _, reverse := range []bool{false, true} {
-		left, right := occurrenceDB(old, old), occurrenceDB(old, edited, edited)
-		if reverse {
-			left, right = right, left
-		}
-		if err := AlignPlaylistItemOccurrences(left, right); err == nil {
-			t.Fatalf("expected ambiguous duplicate anchor/edit to be rejected (reverse=%t)", reverse)
-		}
 	}
 }
 

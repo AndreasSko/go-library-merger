@@ -9,7 +9,7 @@ import (
 )
 
 type playlistOccurrenceSettings struct {
-	label, thumbnail                  string
+	label                             string
 	start, end, baseDuration          sql.NullInt64
 	accuracy, endAction, mediaType    int
 	mediaDuration                     int64
@@ -23,7 +23,7 @@ func playlistSettings(db *Database) map[int]playlistOccurrenceSettings {
 			continue
 		}
 		result[item.PlaylistItemID] = playlistOccurrenceSettings{
-			label: item.Label, thumbnail: item.thumbnailContentKey(),
+			label: item.Label,
 			start: item.StartTrimOffsetTicks, end: item.EndTrimOffsetTicks,
 			accuracy: item.Accuracy, endAction: item.EndAction,
 		}

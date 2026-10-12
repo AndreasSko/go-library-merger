@@ -33,15 +33,17 @@ type MergeConflictsWrapper struct {
 // to merger.MergeConflict, but represents the Models as strings
 // to make it compatible with Gomobile.
 type MergeConflict struct {
-	Key   string
-	Left  string
-	Right string
+	Key           string
+	Left          string
+	Right         string
+	ChangedFields string // JSON array of meaningful playlist setting field names.
 }
 
 // modelRelatedTuple contains a model and its related entries
 type modelRelatedTuple struct {
-	Model   model.Model   `json:"model"`
-	Related model.Related `json:"related"`
+	Model     model.Model   `json:"model"`
+	Related   model.Related `json:"related"`
+	SourceURL string        `json:"sourceURL,omitempty"`
 }
 
 // InitDBWrapper initializes the DatabaseWrapper for the MergeConflictsWrapper
@@ -92,18 +94,34 @@ func (mcw *MergeConflictsWrapper) NextConflict() (*MergeConflict, error) {
 	result := &MergeConflict{
 		Key: conflictKey,
 	}
+	fields := model.PlaylistChangedFields(conflict.Left, conflict.Right)
+	switch conflict.Left.(type) {
+	case *model.PlaylistItem, *model.PlaylistItemLocationMap, *model.PlaylistItemIndependentMediaMap:
+		if len(fields) == 0 {
+			return nil, errors.New("Playlist conflict has no recognized differing settings")
+		}
+	}
+	changed, err := json.Marshal(fields)
+	if err != nil {
+		return nil, err
+	}
+	result.ChangedFields = string(changed)
+	leftRelated := conflict.Left.RelatedEntries(mcw.DBWrapper.merged)
 	jsn, err := json.Marshal(modelRelatedTuple{
-		Model:   conflict.Left,
-		Related: conflict.Left.RelatedEntries(mcw.DBWrapper.merged),
+		Model:     conflict.Left,
+		Related:   leftRelated,
+		SourceURL: playlistConflictSourceURL(conflict.Left, leftRelated, mcw.DBWrapper.left),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "Error while marshalling to JSON")
 	}
 	result.Left = string(jsn)
 
+	rightRelated := conflict.Right.RelatedEntries(mcw.DBWrapper.merged)
 	jsn, err = json.Marshal(modelRelatedTuple{
-		Model:   conflict.Right,
-		Related: conflict.Right.RelatedEntries(mcw.DBWrapper.merged),
+		Model:     conflict.Right,
+		Related:   rightRelated,
+		SourceURL: playlistConflictSourceURL(conflict.Right, rightRelated, mcw.DBWrapper.right),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "Error while marshalling to JSON")

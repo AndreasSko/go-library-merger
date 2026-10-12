@@ -130,6 +130,16 @@ insertions and edits cannot be matched unambiguously, the merge reports an error
 instead of guessing. Different media sharing an incoming filename receive distinct
 output paths, preserving both payloads and their thumbnail references.
 
+Thumbnail differences merge automatically: a present thumbnail wins over
+absence, and different thumbnails use a stable content-based choice. Swapping
+the input backups gives the same result. Title, trim, end-action, accuracy,
+duration, and media-type differences still require a choice. The CLI shows
+the playlist and source as context, then only the settings that differ.
+For unattended merges, use `--playlists chooseLeft` or
+`--playlists chooseRight`. Playlists have no reliable modification timestamp,
+so `chooseNewest` is not supported. Canceling a prompt or reaching end of
+input returns an error without exporting a partial backup.
+
 Regression coverage lives in `model/PlaylistOccurrenceAlignment_test.go`,
 `merger/IndependentMediaMerger_test.go`, and
 `gomobile/PlaylistRegression_test.go`. Run it with `go test ./...`.
@@ -143,6 +153,10 @@ Call `MergePlaylists` with a conflict wrapper first if item conflicts need user
 resolution, and call `Close` after export or cancellation to release temporary
 media. The iOS client needs a rebuilt framework and matching conflict handling
 before releasing this feature; this change does not update the iOS repository.
+The wrapper supplies `ChangedFields` as a JSON array so clients render the
+Go comparison. It also supplies an optional official source URL when the
+imported identity is sufficient; unknown languages and ambiguous media
+identities omit the link instead of guessing.
 
 
 ### Lint scope

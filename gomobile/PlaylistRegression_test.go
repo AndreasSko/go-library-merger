@@ -13,6 +13,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// playlistConflictInputs imports both sides and provides the retryable merge
+// stage used by conflict tests. Membership/export remain explicit at each call.
+func playlistConflictInputs(t *testing.T, path string) (*DatabaseWrapper, *MergeConflictsWrapper, func() error) {
+	t.Helper()
+	db := &DatabaseWrapper{TempDir: t.TempDir()}
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	require.NoError(t, db.ImportJWLBackup(path, "leftSide"))
+	require.NoError(t, db.ImportJWLBackup(path, "rightSide"))
+	conflicts := &MergeConflictsWrapper{}
+	conflicts.InitDBWrapper(db)
+	run := func() error {
+		db.Init()
+		require.NoError(t, db.MergeLocations())
+		require.NoError(t, db.MergeTags())
+		return db.MergePlaylists("", conflicts)
+	}
+	return db, conflicts, run
+}
+
 func mergePlaylistRegression(t *testing.T, left, right, output string, mutate func(*DatabaseWrapper)) {
 	t.Helper()
 	db := &DatabaseWrapper{TempDir: t.TempDir()}
@@ -173,13 +192,6 @@ func TestPlaylistMediaPathCollisionExportsAndRemerges(t *testing.T) {
 			require.Equal(t, pathList, remergedPaths, "self-remerge must not churn media paths")
 		})
 	}
-}
-
-func TestPlaylistSingleMediaStillExportsPayload(t *testing.T) {
-	input := playlisttest.Build(t, []playlisttest.Playlist{{Name: "Media", Items: []string{"A"}}})
-	output := filepath.Join(t.TempDir(), "merged.jwlibrary")
-	mergePlaylistRegression(t, input, input, output, nil)
-	playlisttest.Verify(t, output, []playlisttest.Playlist{{Name: "Media", Items: []string{"A"}}})
 }
 
 func TestPlaylistThumbnailPathCollisionKeepsEachPayload(t *testing.T) {

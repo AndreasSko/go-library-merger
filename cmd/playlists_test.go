@@ -12,6 +12,11 @@ import (
 
 func TestPlaylistArchives(t *testing.T) {
 	for _, tc := range playlisttest.Cases() {
+		// The shared Gomobile table covers individual ordering and union cases.
+		// Exercise the CLI archive pipeline with combined changes and repeats.
+		if tc.Name != "common-plus-new" && tc.Name != "repeat" {
+			continue
+		}
 		for _, reverse := range []bool{false, true} {
 			name := tc.Name
 			if reverse {

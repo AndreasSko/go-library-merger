@@ -13,83 +13,101 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPlaylistThumbnailEditConflictResolvesAndRemerges(t *testing.T) {
-	for _, samePath := range []bool{false, true} {
-		for _, reverse := range []bool{false, true} {
-			for _, side := range []string{"leftSide", "rightSide"} {
-				t.Run(fmt.Sprintf("samePath=%t/reverse=%t/choose=%s", samePath, reverse, side), func(t *testing.T) {
-					fixture := playlisttest.Build(t, []playlisttest.Playlist{{Name: "Thumbnails", Items: []string{"A"}}})
-					db := &DatabaseWrapper{TempDir: t.TempDir()}
-					t.Cleanup(func() { require.NoError(t, db.Close()) })
-					require.NoError(t, db.ImportJWLBackup(fixture, "leftSide"))
-					require.NoError(t, db.ImportJWLBackup(fixture, "rightSide"))
-					originalBlob, err := db.PlaylistThumbnail("leftSide", 1)
-					require.NoError(t, err)
-					changedBlob := []byte("different thumbnail for the same playlist item")
-					media := db.right.IndependentMedia[1]
-					if !samePath {
-						media.FilePath = "changed.jpg"
-						db.right.PlaylistItem[1].ThumbnailFilePath.String = media.FilePath
-					}
-					media.Hash = fmt.Sprintf("%x", sha256.Sum256(changedBlob))
-					require.NoError(t, os.WriteFile(filepath.Join(db.right.IndependentMediaDir, media.FilePath), changedBlob, 0600))
-					require.NoError(t, db.right.LinkPlaylistItems())
-					if reverse {
-						db.left, db.right = db.right, db.left
-					}
-					want := originalBlob
-					if (side == "rightSide") != reverse {
-						want = changedBlob
-					}
-					conflicts := &MergeConflictsWrapper{}
-					conflicts.InitDBWrapper(db)
-					run := func() error {
-						db.Init()
-						require.NoError(t, db.MergeLocations())
-						require.NoError(t, db.MergeTags())
-						return db.MergePlaylists("", conflicts)
-					}
-					require.Error(t, run())
-					conflict, err := conflicts.NextConflict()
-					require.NoError(t, err)
-					for _, entry := range []struct{ side, payload string }{{"leftSide", conflict.Left}, {"rightSide", conflict.Right}} {
-						var tuple struct {
-							Model struct {
-								Type string `json:"type"`
-								ID   int    `json:"playlistItemId"`
-							} `json:"model"`
-						}
-						require.NoError(t, json.Unmarshal([]byte(entry.payload), &tuple))
-						require.Equal(t, "PlaylistItem", tuple.Model.Type)
-						blob, err := db.PlaylistThumbnail(entry.side, tuple.Model.ID)
-						require.NoError(t, err)
-						expected := originalBlob
-						if (entry.side == "rightSide") != reverse {
-							expected = changedBlob
-						}
-						require.Equal(t, expected, blob)
-					}
-					require.NoError(t, conflicts.SolveConflict(conflict.Key, side))
-					require.NoError(t, run())
-					require.NoError(t, db.MergeTagMaps())
-					output := filepath.Join(t.TempDir(), "resolved.jwlibrary")
-					require.NoError(t, db.ExportMerged(output))
-					playlisttest.Verify(t, output, []playlisttest.Playlist{{Name: "Thumbnails", Items: []string{"A"}}})
-					got := importedPlaylist(t, output)
-					item := orderedItems(got)[0]
-					blob, err := got.PlaylistThumbnail(item.ID())
-					require.NoError(t, err)
-					require.Equal(t, want, blob)
-					again := filepath.Join(t.TempDir(), "again.jwlibrary")
-					mergePlaylistRegression(t, output, output, again, nil)
-					remerged := importedPlaylist(t, again)
-					require.Len(t, orderedItems(remerged), 1)
-					blob, err = remerged.PlaylistThumbnail(orderedItems(remerged)[0].ID())
-					require.NoError(t, err)
-					require.Equal(t, want, blob)
-				})
+func TestPlaylistThumbnailCosmeticPolicyResolvesAndRemerges(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		samePath, reverse bool
+		// Empty side denotes a cosmetic-only change, with no conflict choice.
+		side string
+	}{
+		{"different paths/forward/cosmetic", false, false, ""},
+		{"different paths/forward/choose left", false, false, "leftSide"},
+		{"different paths/forward/choose right", false, false, "rightSide"},
+		{"different paths/reverse/cosmetic", false, true, ""},
+		{"different paths/reverse/choose left", false, true, "leftSide"},
+		{"different paths/reverse/choose right", false, true, "rightSide"},
+		{"path collision/forward/cosmetic", true, false, ""},
+		{"path collision/forward/choose left", true, false, "leftSide"},
+		{"path collision/forward/choose right", true, false, "rightSide"},
+		{"path collision/reverse/cosmetic", true, true, ""},
+		{"path collision/reverse/choose left", true, true, "leftSide"},
+		{"path collision/reverse/choose right", true, true, "rightSide"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := playlisttest.Build(t, []playlisttest.Playlist{{Name: "Thumbnails", Items: []string{"A"}}})
+			db, conflicts, run := playlistConflictInputs(t, fixture)
+			originalBlob, err := db.PlaylistThumbnail("leftSide", 1)
+			require.NoError(t, err)
+			changedBlob := []byte("different thumbnail for the same playlist item")
+			media := db.right.IndependentMedia[1]
+			if !tc.samePath {
+				media.FilePath = "changed.jpg"
+				db.right.PlaylistItem[1].ThumbnailFilePath.String = media.FilePath
 			}
-		}
+			media.Hash = fmt.Sprintf("%x", sha256.Sum256(changedBlob))
+			require.NoError(t, os.WriteFile(filepath.Join(db.right.IndependentMediaDir, media.FilePath), changedBlob, 0600))
+			if tc.side != "" {
+				db.right.PlaylistItem[1].Accuracy = 2
+			}
+			require.NoError(t, db.right.LinkPlaylistItems())
+			want := originalBlob
+			if media.UniqueKey() < db.left.IndependentMedia[1].UniqueKey() {
+				want = changedBlob
+			}
+			if tc.reverse {
+				db.left, db.right = db.right, db.left
+			}
+			if tc.side != "" {
+				require.Error(t, run())
+				conflict, err := conflicts.NextConflict()
+				require.NoError(t, err)
+				require.JSONEq(t, `["accuracy"]`, conflict.ChangedFields)
+				for _, entry := range []struct{ side, payload string }{{"leftSide", conflict.Left}, {"rightSide", conflict.Right}} {
+					var tuple struct {
+						Model struct {
+							Type string `json:"type"`
+							ID   int    `json:"playlistItemId"`
+						} `json:"model"`
+					}
+					require.NoError(t, json.Unmarshal([]byte(entry.payload), &tuple))
+					require.Equal(t, "PlaylistItem", tuple.Model.Type)
+					blob, err := db.PlaylistThumbnail(entry.side, tuple.Model.ID)
+					require.NoError(t, err)
+					expected := originalBlob
+					if (entry.side == "rightSide") != tc.reverse {
+						expected = changedBlob
+					}
+					require.Equal(t, expected, blob)
+				}
+				require.NoError(t, conflicts.SolveConflict(conflict.Key, tc.side))
+				require.NoError(t, run())
+			} else {
+				require.NoError(t, run())
+				_, err := conflicts.NextConflict()
+				require.Error(t, err)
+			}
+			require.NoError(t, db.MergeTagMaps())
+			output := filepath.Join(t.TempDir(), "resolved.jwlibrary")
+			require.NoError(t, db.ExportMerged(output))
+			playlisttest.Verify(t, output, []playlisttest.Playlist{{Name: "Thumbnails", Items: []string{"A"}}})
+			got := importedPlaylist(t, output)
+			item := orderedItems(got)[0]
+			expectedAccuracy := 1
+			if tc.side != "" && (tc.side == "rightSide") != tc.reverse {
+				expectedAccuracy = 2
+			}
+			require.Equal(t, expectedAccuracy, item.Accuracy)
+			blob, err := got.PlaylistThumbnail(item.ID())
+			require.NoError(t, err)
+			require.Equal(t, want, blob)
+			again := filepath.Join(t.TempDir(), "again.jwlibrary")
+			mergePlaylistRegression(t, output, output, again, nil)
+			remerged := importedPlaylist(t, again)
+			require.Len(t, orderedItems(remerged), 1)
+			blob, err = remerged.PlaylistThumbnail(orderedItems(remerged)[0].ID())
+			require.NoError(t, err)
+			require.Equal(t, want, blob)
+		})
 	}
 }
 
@@ -107,27 +125,43 @@ func TestPlaylistThumbnailSameContentDifferentPathHasNoConflict(t *testing.T) {
 }
 
 func TestPlaylistThumbnailAPIRejectsInvalidInputAndUsesDefault(t *testing.T) {
-	db := &DatabaseWrapper{}
-	_, err := db.PlaylistThumbnail("unknown", 1)
-	require.Error(t, err)
-	_, err = db.PlaylistThumbnail("leftSide", 1)
-	require.Error(t, err)
+	db := &DatabaseWrapper{TempDir: t.TempDir()}
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	for _, tc := range []struct{ name, side string }{
+		{"unknown side", "unknown"},
+		{"unloaded side", "leftSide"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := db.PlaylistThumbnail(tc.side, 1)
+			require.Error(t, err)
+		})
+	}
 	fixture := playlisttest.Build(t, []playlisttest.Playlist{{Name: "Thumbnails", Items: []string{"A"}}})
 	require.NoError(t, db.ImportJWLBackup(fixture, "leftSide"))
-	defer func() { require.NoError(t, db.Close()) }()
-	_, err = db.PlaylistThumbnail("leftSide", -1)
-	require.Error(t, err)
-	_, err = db.PlaylistThumbnail("leftSide", 99)
-	require.Error(t, err)
-	db.left.PlaylistItem[1].ThumbnailFilePath.Valid = false
-	blob, err := db.PlaylistThumbnail("leftSide", 1)
-	require.NoError(t, err)
-	require.True(t, len(blob) > 8)
-	require.Equal(t, []byte{137, 80, 78, 71, 13, 10, 26, 10}, blob[:8])
-	db.left.PlaylistItem[1].ThumbnailFilePath.String = "../outside"
-	db.left.PlaylistItem[1].ThumbnailFilePath.Valid = true
-	_, err = db.PlaylistThumbnail("leftSide", 1)
-	require.Error(t, err)
+	for _, tc := range []struct {
+		name             string
+		id               int
+		path             string
+		valid, wantError bool
+	}{
+		{"negative item ID", -1, "", false, true},
+		{"missing item ID", 99, "", false, true},
+		{"default thumbnail", 1, "", false, false},
+		{"path traversal", 1, "../outside", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db.left.PlaylistItem[1].ThumbnailFilePath.String = tc.path
+			db.left.PlaylistItem[1].ThumbnailFilePath.Valid = tc.valid
+			blob, err := db.PlaylistThumbnail("leftSide", tc.id)
+			if tc.wantError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Greater(t, len(blob), 8)
+			require.Equal(t, []byte{137, 80, 78, 71, 13, 10, 26, 10}, blob[:8])
+		})
+	}
 }
 
 // Imported validation must recognize native JW Library's unpadded byte hex

@@ -50,15 +50,19 @@ func TestSkipPlaylistsAndInvalidExport(t *testing.T) {
 
 func TestPlaylistExportRejectsMissingMembershipOrContent(t *testing.T) {
 	fixture := playlisttest.Build(t, []playlisttest.Playlist{{Name: "Graph", Items: []string{"A"}}})
-	for _, membership := range []bool{false, true} {
-		db := &model.Database{TempDir: t.TempDir()}
-		require.NoError(t, db.ImportJWLBackup(fixture))
-		defer func() { require.NoError(t, db.CleanupMedia()) }()
-		if membership {
-			db.TagMap = nil
-		} else {
-			db.PlaylistItemLocationMap = nil
-		}
-		require.ErrorContains(t, db.ExportJWLBackup(filepath.Join(t.TempDir(), "invalid.jwlibrary")), "invalid backup playlist relationships")
+	for _, tc := range []struct {
+		name   string
+		remove func(*model.Database)
+	}{
+		{"missing membership", func(db *model.Database) { db.TagMap = nil }},
+		{"missing content", func(db *model.Database) { db.PlaylistItemLocationMap = nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := &model.Database{TempDir: t.TempDir()}
+			require.NoError(t, db.ImportJWLBackup(fixture))
+			defer func() { require.NoError(t, db.CleanupMedia()) }()
+			tc.remove(db)
+			require.ErrorContains(t, db.ExportJWLBackup(filepath.Join(t.TempDir(), "invalid.jwlibrary")), "invalid backup playlist relationships")
+		})
 	}
 }

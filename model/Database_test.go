@@ -264,15 +264,15 @@ func Test_getSliceCapacity(t *testing.T) {
 	assert.NoError(t, err)
 	defer db.Close()
 
-	rows := mock.NewRows([]string{"TagId"}).AddRow(3)
-	mock.ExpectQuery("SELECT TagId FROM Tag ORDER BY TagId DESC LIMIT 1").WillReturnRows(rows)
+	rows := mock.NewRows([]string{"count", "max", "min"}).AddRow(2, 3, 1)
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\), COALESCE\\(MAX\\(TagId\\), 0\\), COALESCE\\(MIN\\(TagId\\), 0\\) FROM Tag").WillReturnRows(rows)
 	res, err := getSliceCapacity(db, &Tag{})
 	assert.NoError(t, err)
 	assert.Equal(t, 4, res)
 
 	// Test with empty DB
-	rows = mock.NewRows([]string{"TagId"})
-	mock.ExpectQuery("SELECT TagId FROM Tag ORDER BY TagId DESC LIMIT 1").WillReturnRows(rows)
+	rows = mock.NewRows([]string{"count", "max", "min"}).AddRow(0, 0, 0)
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\), COALESCE\\(MAX\\(TagId\\), 0\\), COALESCE\\(MIN\\(TagId\\), 0\\) FROM Tag").WillReturnRows(rows)
 	res, err = getSliceCapacity(db, &Tag{})
 	assert.NoError(t, err)
 	assert.Equal(t, 1, res)
@@ -646,7 +646,7 @@ func TestDatabase_saveToNewSQLite(t *testing.T) {
 		Note:     []*Note{{2, "F75A18EE-FC17-4E0B-ABB6-CC16DABE9610", sql.NullInt32{Int32: 3, Valid: true}, sql.NullInt32{Int32: 3, Valid: true}, sql.NullString{String: "For all things I have the strength through the one who gives me power.", Valid: true}, sql.NullString{String: "!", Valid: true}, "2020-04-14T18:42:14+00:00", "2020-04-14T18:42:14+00:00", 2, sql.NullInt32{Int32: 13, Valid: true}}},
 		Tag:      []*Tag{{2, 1, "Strengthening"}},
 		TagMap:   []*TagMap{{2, sql.NullInt32{Int32: 0, Valid: false}, sql.NullInt32{Int32: 0, Valid: false}, sql.NullInt32{Int32: 2, Valid: true}, 2, 1}},
-		UserMark: []*UserMark{{2, 1, 2, 0, "2C5E7B4A-4997-4EDA-9CFF-38A7599C487B", 1}},
+		UserMark: []*UserMark{{2, 1, 4, 0, "2C5E7B4A-4997-4EDA-9CFF-38A7599C487B", 1}},
 	}
 	path := filepath.Join(tmp, userDataFilename)
 	assert.NoError(t, db.saveToNewSQLite(path))

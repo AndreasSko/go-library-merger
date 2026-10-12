@@ -76,7 +76,7 @@ func (db *Database) FetchFromTable(tableName string, id int) Model {
 		panic(fmt.Sprintf("Table %s does not exist in Database", tableName))
 	}
 
-	if id >= table.Len() {
+	if id < 0 || id >= table.Len() {
 		return nil
 	}
 	if table.Index(id).IsNil() {
@@ -536,6 +536,9 @@ func (db *Database) importSQLite(filename string) error {
 		return err
 	default:
 	}
+	if err := db.validateUserMarkLocations(); err != nil {
+		return err
+	}
 	for _, tag := range db.Tag {
 		if tag != nil && tag.TagType == 2 {
 			db.ContainsPlaylists = true
@@ -623,6 +626,9 @@ func fetchFromSQLite(sqlite *sql.DB, modelType Model) ([]Model, error) {
 			i++
 			continue
 		}
+		if mn.ID() <= 0 || mn.ID() >= len(result) {
+			return nil, fmt.Errorf("invalid %s ID %d", modelType.tableName(), mn.ID())
+		}
 		result[mn.ID()] = mn
 		i++
 	}
@@ -692,32 +698,45 @@ func getTableEntryCount(sqlite *sql.DB, tableName string) (int, error) {
 	return count, nil
 }
 
-// getSliceCapacity determines the needed capacity for a slice from a table
-// by looking at the highest ID in the DB. If the table does not have a ID
-// column, it will simply count the number of entries.
-func getSliceCapacity(sqlite *sql.DB, modelType Model) (int, error) {
-	var query string
-	if modelType.idName() != "" {
-		query = fmt.Sprintf("SELECT %s FROM %s ORDER BY %s DESC LIMIT 1",
-			modelType.idName(), modelType.tableName(), modelType.idName())
-	} else {
-		query = fmt.Sprintf("SELECT COUNT(*) FROM %s", modelType.tableName())
-	}
-	row, err := sqlite.Query(query)
-	if err != nil {
-		return 0, err
-	}
-	defer row.Close()
+// Bound ID-indexed allocations before reading model rows. Ordinary ID gaps
+// remain supported; a few rows cannot force a multi-million-element allocation.
+const maxModelEntries = 10_000_000
 
-	capacity := 0
-	for row.Next() {
-		if err := row.Scan(&capacity); err != nil {
+// getSliceCapacity uses the highest ID, or row count for tables without IDs.
+func getSliceCapacity(sqlite *sql.DB, modelType Model) (int, error) {
+	var count, highest, lowest int64
+	if modelType.idName() != "" {
+		query := fmt.Sprintf("SELECT COUNT(*), COALESCE(MAX(%s), 0), COALESCE(MIN(%s), 0) FROM %s", modelType.idName(), modelType.idName(), modelType.tableName())
+		if err := sqlite.QueryRow(query).Scan(&count, &highest, &lowest); err != nil {
 			return 0, err
 		}
+		if count > 0 && lowest <= 0 {
+			return 0, fmt.Errorf("invalid %s ID %d", modelType.tableName(), lowest)
+		}
+	} else {
+		if err := sqlite.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", modelType.tableName())).Scan(&count); err != nil {
+			return 0, err
+		}
+		highest = count
 	}
+	if highest < 0 || highest >= maxModelEntries || count < 0 || count >= maxModelEntries {
+		return 0, fmt.Errorf("%s IDs exceed supported allocation size", modelType.tableName())
+	}
+	// Permit up to one million slots even for small backups, and generous gaps
+	// for larger backups. Multiplication is safe after the absolute bound above.
+	if highest > 1_000_000 && highest > count*64 {
+		return 0, fmt.Errorf("%s IDs are too sparse for safe allocation", modelType.tableName())
+	}
+	return int(highest) + 1, nil
+}
 
-	// Index in DB starts with 1, so 0 is always nil
-	return capacity + 1, nil
+func (db *Database) validateUserMarkLocations() error {
+	for _, mark := range db.UserMark {
+		if mark != nil && (mark.LocationID <= 0 || mark.LocationID >= len(db.Location) || db.Location[mark.LocationID] == nil) {
+			return fmt.Errorf("invalid backup: UserMark %d references missing Location %d", mark.ID(), mark.LocationID)
+		}
+	}
+	return nil
 }
 
 // copyIndependentMedia copies all files referenced in IndependentMedia from src to dest.
@@ -767,6 +786,9 @@ func validateBackupFilename(name string) error {
 
 // ExportJWLBackup creates a .jwlibrary backup file out of a Database{} struct
 func (db *Database) ExportJWLBackup(filename string) error {
+	if err := db.validateUserMarkLocations(); err != nil {
+		return err
+	}
 	// Create tmp folder and place all files there
 	tmp, err := os.MkdirTemp(db.TempDir, "library-merger")
 	if err != nil {
@@ -935,6 +957,7 @@ func insertEntries(sqlite *sql.DB, m []Model) error {
 	if err != nil {
 		return err
 	}
+	defer func() { _ = tx.Rollback() }() // Preserve the insertion error during cleanup.
 
 	// Dynamically add all column-names of the struct to the query
 	query := fmt.Sprintf("INSERT INTO %s VALUES (", tableName)

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -42,9 +41,12 @@ func (mfst *manifest) importManifest(path string) error {
 	}
 	defer file.Close()
 
-	blob, _ := io.ReadAll(file)
+	blob, err := io.ReadAll(file)
+	if err != nil {
+		return errors.Wrap(err, "Could not read backup manifest file")
+	}
 
-	err = json.Unmarshal([]byte(blob), &mfst)
+	err = json.Unmarshal(blob, &mfst)
 	if err != nil {
 		return errors.Wrap(err, "Could not unmarshall backup manifest file")
 	}
@@ -86,7 +88,7 @@ func generateManifest(backupName string, dbFile string) (*manifest, error) {
 	defer f.Close()
 	hasher := sha256.New()
 	if _, err := io.Copy(hasher, f); err != nil {
-		log.Fatal(err)
+		return nil, errors.Wrap(err, "Error while reading SQLite file to calculate hash")
 	}
 	hash := fmt.Sprintf("%x", hasher.Sum(nil))
 

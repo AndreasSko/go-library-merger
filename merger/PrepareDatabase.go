@@ -77,8 +77,11 @@ func needsNwtstyMigration(left *model.Database, right *model.Database) map[int]M
 			continue
 		}
 
-		leftLocation := left.Location[leftUM.LocationID]
-		rightLocation := right.Location[rightUM.LocationID]
+		leftLocation, _ := left.FetchFromTable("Location", leftUM.LocationID).(*model.Location)
+		rightLocation, _ := right.FetchFromTable("Location", rightUM.LocationID).(*model.Location)
+		if leftLocation == nil || rightLocation == nil {
+			continue // Import/export validation reports malformed references.
+		}
 		if leftLocation.KeySymbol.String == "nwt" && rightLocation.KeySymbol.String == "nwtsty" {
 			result[int(leftLocation.MepsLanguage.Int32)] = LeftSide
 			continue

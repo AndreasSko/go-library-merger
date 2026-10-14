@@ -10,12 +10,12 @@ import (
 	"reflect"
 	"regexp"
 	"strconv"
-	"sync"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 
 	// Register SQLite driver
 	_ "embed"
@@ -299,105 +299,73 @@ func (db *Database) importSQLite(filename string) error {
 	}
 	defer sqlite.Close()
 
-	var wg sync.WaitGroup
-	wg.Add(8)
-	errors := make(chan error, 10)
-
-	// Fill each table struct separately (did not find a DRYer solution yet..)
-	go func() {
+	var group errgroup.Group
+	group.Go(func() error {
 		mdl, err := fetchFromSQLite(sqlite, &BlockRange{})
 		if err != nil {
-			errors <- err
-			wg.Done()
-			return
+			return err
 		}
 		db.BlockRange = BlockRange{}.MakeSlice(mdl)
-		wg.Done()
-	}()
-
-	go func() {
+		return nil
+	})
+	group.Go(func() error {
 		mdl, err := fetchFromSQLite(sqlite, &Bookmark{})
 		if err != nil {
-			errors <- err
-			wg.Done()
-			return
+			return err
 		}
 		db.Bookmark = Bookmark{}.MakeSlice(mdl)
-		wg.Done()
-	}()
-
-	go func() {
+		return nil
+	})
+	group.Go(func() error {
 		mdl, err := fetchFromSQLite(sqlite, &InputField{})
 		if err != nil {
-			errors <- err
-			wg.Done()
-			return
+			return err
 		}
 		db.InputField = InputField{}.MakeSlice(mdl)
-		wg.Done()
-	}()
-
-	go func() {
+		return nil
+	})
+	group.Go(func() error {
 		mdl, err := fetchFromSQLite(sqlite, &Location{})
 		if err != nil {
-			errors <- err
-			wg.Done()
-			return
+			return err
 		}
 		db.Location = Location{}.MakeSlice(mdl)
-		wg.Done()
-	}()
-
-	go func() {
+		return nil
+	})
+	group.Go(func() error {
 		mdl, err := fetchFromSQLite(sqlite, &Note{})
 		if err != nil {
-			errors <- err
-			wg.Done()
-			return
+			return err
 		}
 		db.Note = Note{}.MakeSlice(mdl)
-		wg.Done()
-	}()
-
-	go func() {
+		return nil
+	})
+	group.Go(func() error {
 		mdl, err := fetchFromSQLite(sqlite, &Tag{})
 		if err != nil {
-			errors <- err
-			wg.Done()
-			return
+			return err
 		}
 		db.Tag = Tag{}.MakeSlice(mdl)
-		wg.Done()
-	}()
-
-	go func() {
+		return nil
+	})
+	group.Go(func() error {
 		mdl, err := fetchFromSQLite(sqlite, &TagMap{})
 		if err != nil {
-			errors <- err
-			wg.Done()
-			return
+			return err
 		}
 		db.TagMap = TagMap{}.MakeSlice(mdl)
-		wg.Done()
-	}()
-
-	go func() {
+		return nil
+	})
+	group.Go(func() error {
 		mdl, err := fetchFromSQLite(sqlite, &UserMark{})
 		if err != nil {
-			errors <- err
-			wg.Done()
-			return
+			return err
 		}
 		db.UserMark = UserMark{}.MakeSlice(mdl)
-		wg.Done()
-	}()
-
-	wg.Wait()
-
-	select {
-	case err := <-errors:
+		return nil
+	})
+	if err := group.Wait(); err != nil {
 		return err
-	default:
 	}
 
 	// Make sure these tables are empty as we are not able to merge them yet.

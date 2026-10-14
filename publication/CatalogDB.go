@@ -158,7 +158,7 @@ func fetchManifest(ctx context.Context) (catalogManifest, error) {
 	if err != nil {
 		return catalogManifest{}, errors.Wrapf(err, "Error while creating new request for %s", ManifestURL)
 	}
-	req.WithContext(ctx)
+	req = req.WithContext(ctx)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)

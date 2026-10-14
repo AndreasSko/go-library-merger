@@ -2,6 +2,7 @@ package gomobile
 
 import (
 	"context"
+	"sync"
 
 	"github.com/AndreasSko/go-library-merger/publication"
 )
@@ -9,7 +10,8 @@ import (
 // DownloadManager keeps all the information of a running download, enabling it
 // to check progress and also cancel the download if necessary
 type DownloadManager struct {
-	Progress  *DownloadProgress
+	mu        sync.RWMutex
+	progress  DownloadProgress
 	prgrsChan chan publication.Progress
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -31,48 +33,60 @@ type DownloadProgress struct {
 func DownloadCatalog(dst string) *DownloadManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	dm := &DownloadManager{
-		Progress:  &DownloadProgress{},
 		prgrsChan: make(chan publication.Progress),
 		ctx:       ctx,
 		cancel:    cancel,
 	}
 
-	// Start download in sub-goroutine, while monitoring its progress
+	// The worker owns publication state; consumers receive immutable snapshots.
 	go func() {
-		done := make(chan struct{})
-		go func() {
-			err := publication.DownloadCatalog(dm.ctx, dm.prgrsChan, dst)
-			if err != nil {
-				dm.err = err
-			}
-			done <- struct{}{}
-		}()
+		result := make(chan error, 1)
+		go func() { result <- publication.DownloadCatalog(dm.ctx, dm.prgrsChan, dst) }()
 		for progress := range dm.prgrsChan {
-			dm.Progress.Size = progress.Size
-			dm.Progress.BytesComplete = progress.BytesComplete
-			dm.Progress.BytesPerSecond = progress.BytesPerSecond
-			dm.Progress.Progress = progress.Progress
+			dm.mu.Lock()
+			dm.progress.Size = progress.Size
+			dm.progress.BytesComplete = progress.BytesComplete
+			dm.progress.BytesPerSecond = progress.BytesPerSecond
+			dm.progress.Progress = progress.Progress
+			dm.mu.Unlock()
 		}
-		<-done
-		dm.Progress.Done = true
+		err := <-result
+		dm.mu.Lock()
+		dm.err = err
+		dm.progress.Done = true
+		dm.mu.Unlock()
 	}()
 
 	return dm
 }
 
+// GetProgress returns a snapshot that stays unchanged as the download advances.
+func (dm *DownloadManager) GetProgress() *DownloadProgress {
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
+	snapshot := dm.progress
+	return &snapshot
+}
+
 // CancelDownload cancels a running download
 func (dm *DownloadManager) CancelDownload() {
 	dm.cancel()
-	dm.Progress.Canceled = true
+	dm.mu.Lock()
+	dm.progress.Canceled = true
+	dm.mu.Unlock()
 }
 
 // DownloadSuccessful indicates if the download has been successful
 func (dm *DownloadManager) DownloadSuccessful() bool {
-	return dm.Progress.Done && dm.err == nil && !dm.Progress.Canceled
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
+	return dm.progress.Done && dm.err == nil && !dm.progress.Canceled
 }
 
 // Error returns possible errors of a download as a string
 func (dm *DownloadManager) Error() string {
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
 	if dm.err != nil {
 		return dm.err.Error()
 	}

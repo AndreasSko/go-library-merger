@@ -29,24 +29,24 @@ type DatabaseWrapper struct {
 // ImportJWLBackup imports a .jwlibrary backup file into the struct
 // on the given side.
 func (dbw *DatabaseWrapper) ImportJWLBackup(filename string, side string) error {
-	db := &model.Database{
-		TempDir:       dbw.TempDir,
-		SkipPlaylists: dbw.skipPlaylists,
-	}
-
-	if err := db.ImportJWLBackup(filename); err != nil {
-		return err
-	}
-
+	var db **model.Database
 	switch side {
 	case "leftSide":
-		dbw.left = db
+		db = &dbw.left
 	case "rightSide":
-		dbw.right = db
+		db = &dbw.right
 	default:
 		return errors.New("only leftSide and rightSide are valid for importing backups")
 	}
-
+	imported := *db
+	if imported == nil {
+		imported = &model.Database{}
+	}
+	imported.TempDir, imported.SkipPlaylists = dbw.TempDir, dbw.skipPlaylists
+	if err := imported.ImportJWLBackup(filename); err != nil {
+		return err
+	}
+	*db = imported
 	return nil
 }
 
@@ -58,13 +58,20 @@ func (dbw *DatabaseWrapper) SkipPlaylists(skipPlaylists bool) {
 
 // Init initializes the DatabaseWrapper to prepare for subsequent
 // function calls. Should be called after ImportJWLBackup.
-func (dbw *DatabaseWrapper) Init() {
+func (dbw *DatabaseWrapper) Init() error {
+	if dbw.left == nil || dbw.right == nil {
+		return errors.New("both backup sides must be loaded")
+	}
+	if err := dbw.merged.Close(); err != nil {
+		return err
+	}
 	dbw.leftTmp = model.MakeDatabaseCopy(dbw.left)
 	dbw.rightTmp = model.MakeDatabaseCopy(dbw.right)
 	dbw.merged = &model.Database{
 		TempDir: dbw.TempDir,
 	}
 	merger.PrepareDatabasesPreMerge(dbw.leftTmp, dbw.rightTmp)
+	return nil
 }
 
 // DBIsLoaded indicates if a DB on the given side has been loaded.
@@ -101,4 +108,22 @@ func (dbw *DatabaseWrapper) DBContainsPlaylists(side string) bool {
 func (dbw *DatabaseWrapper) ExportMerged(filename string) error {
 	merger.PrepareDatabasesPostMerge(dbw.merged)
 	return dbw.merged.ExportJWLBackup(filename)
+}
+
+// Close releases temporary files after export or cancellation.
+func (dbw *DatabaseWrapper) Close() error {
+	leftErr := dbw.left.Close()
+	if leftErr == nil {
+		dbw.left = nil
+	}
+	rightErr := dbw.right.Close()
+	if rightErr == nil {
+		dbw.right = nil
+	}
+	mergedErr := dbw.merged.Close()
+	if mergedErr == nil {
+		dbw.merged = nil
+	}
+	dbw.leftTmp, dbw.rightTmp = nil, nil
+	return errors.Join(leftErr, rightErr, mergedErr)
 }

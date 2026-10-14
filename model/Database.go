@@ -3,6 +3,7 @@ package model
 import (
 	"archive/zip"
 	"database/sql"
+	stdErrors "errors"
 	"fmt"
 	"io"
 	"os"
@@ -53,6 +54,10 @@ type Database struct {
 	SkipPlaylists bool
 	// TempDir is used for temporary files. If not set, os.TempDir() will be used.
 	TempDir string
+	// WorkingDir holds the files of the imported backup. Call Close to
+	// remove it when the database is no longer needed.
+	WorkingDir     string
+	ownsWorkingDir bool
 }
 
 // FetchFromTable tries to fetch a entry with the given ID. If it can't find it
@@ -185,6 +190,9 @@ func (db *Database) Equals(other *Database) bool {
 	for i := 0; i < dbFields.NumField(); i++ {
 		dbField := dbFields.Field(i)
 		otherField := otherFields.Field(i)
+		if !dbField.CanInterface() || dbFields.Type().Field(i).Name == "WorkingDir" {
+			continue
+		}
 
 		tp := dbField.Kind()
 		switch tp {
@@ -238,15 +246,53 @@ func (db *Database) Equals(other *Database) bool {
 	return true
 }
 
+// CreateWorkingDirectory gives the database a new directory for its files.
+// The previous directory is removed first.
+func (db *Database) CreateWorkingDirectory() error {
+	dir, err := os.MkdirTemp(db.TempDir, "library-merger")
+	if err != nil {
+		return err
+	}
+	if err := db.Close(); err != nil {
+		return stdErrors.Join(err, os.RemoveAll(dir))
+	}
+	db.WorkingDir, db.ownsWorkingDir = dir, true
+	return nil
+}
+
+// Close removes the working directory if this database created it. Copies
+// share the directory of the original but never remove it.
+func (db *Database) Close() error {
+	if db == nil || !db.ownsWorkingDir {
+		return nil
+	}
+	if err := os.RemoveAll(db.WorkingDir); err != nil {
+		return err
+	}
+	db.WorkingDir, db.ownsWorkingDir = "", false
+	return nil
+}
+
 // ImportJWLBackup unzips a given JW Library Backup file and imports the
 // included SQLite DB to the Database struct
 func (db *Database) ImportJWLBackup(filename string) error {
-	// Create tmp folder and place all files there
-	tmp, err := os.MkdirTemp(db.TempDir, "library-merger")
-	if err != nil {
+	// Import into a new Database, so a failed import keeps the previous one.
+	imported := &Database{TempDir: db.TempDir, SkipPlaylists: db.SkipPlaylists}
+	if err := imported.importJWLBackup(filename); err != nil {
+		return stdErrors.Join(err, imported.Close())
+	}
+	if err := db.Close(); err != nil {
+		return stdErrors.Join(err, imported.Close())
+	}
+	*db = *imported
+	return nil
+}
+
+func (db *Database) importJWLBackup(filename string) error {
+	if err := db.CreateWorkingDirectory(); err != nil {
 		return errors.Wrap(err, "Error while creating temporary directory")
 	}
-	defer os.RemoveAll(tmp)
+	tmp := db.WorkingDir
 
 	r, err := zip.OpenReader(filename)
 	if err != nil {

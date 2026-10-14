@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -8,7 +9,6 @@ import (
 	"github.com/AlecAivazis/survey/v2/terminal"
 	"github.com/AndreasSko/go-library-merger/model"
 	"github.com/MakeNowJust/heredoc"
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -28,23 +28,25 @@ var purgeCmd = &cobra.Command{
 	 * TagMap
 	 * UserMark`),
 	Example: `library-merger purge original.jwlibrary purged.jwlibrary --tables=Note,Tag,TagMap`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		inputFilename := args[0]
 		outputFilename := args[1]
-		purge(inputFilename, outputFilename, terminal.Stdio{In: os.Stdin, Out: os.Stdout, Err: os.Stderr})
+		return purge(inputFilename, outputFilename, terminal.Stdio{In: os.Stdin, Out: os.Stdout, Err: os.Stderr})
 	},
 	Args: cobra.ExactArgs(2),
 }
 
 var Tables string
 
-func purge(inputFilename string, outputFilename string, stdio terminal.Stdio) {
+func purge(inputFilename string, outputFilename string, stdio terminal.Stdio) (resultErr error) {
 	fmt.Fprintln(stdio.Out, "Importing backup")
 	db := &model.Database{}
 	err := db.ImportJWLBackup(inputFilename)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
+
+	defer func() { resultErr = errors.Join(resultErr, db.Close()) }()
 
 	Tables = strings.ReplaceAll(Tables, " ", "")
 	tableSlice := strings.Split(Tables, ",")
@@ -52,15 +54,16 @@ func purge(inputFilename string, outputFilename string, stdio terminal.Stdio) {
 	fmt.Fprintln(stdio.Out, "🔥 Purging the following tables:", strings.TrimSuffix(strings.Join(tableSlice, ", "), ","))
 	err = db.PurgeTables(tableSlice)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	fmt.Fprintln(stdio.Out, "💾 Storing backup")
 	if err = db.ExportJWLBackup(outputFilename); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	fmt.Fprintln(stdio.Out, "🎉 Done")
+	return nil
 }
 
 func init() {

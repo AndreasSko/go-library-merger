@@ -17,6 +17,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDatabase_Fetch(t *testing.T) {
@@ -797,6 +798,7 @@ func TestDatabase_ImportJWLBackup(t *testing.T) {
 
 	path := filepath.Join("testdata", "backup.jwlibrary")
 	assert.NoError(t, db.ImportJWLBackup(path))
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
 
 	// As we already test the correctness in Test_fetchFromSQLite,
 	// it should be sufficient to just double-check the size of the slices.
@@ -819,6 +821,7 @@ func TestDatabase_ExportJWLBackup(t *testing.T) {
 
 	path := filepath.Join("testdata", "backup.jwlibrary")
 	assert.NoError(t, db.ImportJWLBackup(path))
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
 
 	newPath := filepath.Join(testFolder, "backup.jwlibrary")
 	assert.NoError(t, db.ExportJWLBackup(newPath))
@@ -830,8 +833,8 @@ func TestDatabase_ExportJWLBackup(t *testing.T) {
 		assert.Contains(t, filenames, expected)
 	}
 
-	db = Database{}
 	assert.NoError(t, db.ImportJWLBackup(newPath))
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
 
 	assert.Len(t, db.BlockRange, 5)
 	assert.Equal(t, &BlockRange{3, 2, 13, sql.NullInt32{Int32: 0, Valid: true}, sql.NullInt32{Int32: 14, Valid: true}, 3}, db.BlockRange[3])
@@ -926,8 +929,10 @@ func TestDatabase_Equals(t *testing.T) {
 
 	path := filepath.Join("testdata", "backup.jwlibrary")
 	assert.NoError(t, db1.ImportJWLBackup(path))
+	t.Cleanup(func() { assert.NoError(t, db1.Close()) })
 	assert.False(t, db1.Equals(db2))
 	assert.NoError(t, db2.ImportJWLBackup(path))
+	t.Cleanup(func() { assert.NoError(t, db2.Close()) })
 	assert.True(t, db1.Equals(db2))
 
 	db1.Location = append(db1.Location, &Location{
@@ -939,6 +944,7 @@ func TestDatabase_Equals(t *testing.T) {
 	db3 := &Database{}
 	path = filepath.Join("testdata", "backup_shuffled.jwlibrary")
 	assert.NoError(t, db3.ImportJWLBackup(path))
+	t.Cleanup(func() { assert.NoError(t, db3.Close()) })
 	assert.True(t, db2.Equals(db3))
 }
 
@@ -956,4 +962,102 @@ func filenamesInZip(path string) ([]string, error) {
 	}
 
 	return filenames, nil
+}
+
+func TestDatabaseFileOwnership(t *testing.T) {
+	for _, operation := range []string{"close copy", "close owner", "replace directory"} {
+		t.Run(operation, func(t *testing.T) {
+			parent := t.TempDir()
+			db := &Database{TempDir: parent}
+			require.NoError(t, db.CreateWorkingDirectory())
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			dir := db.WorkingDir
+			file := filepath.Join(dir, "payload")
+			require.NoError(t, os.WriteFile(file, []byte("retained"), 0600))
+			copy := MakeDatabaseCopy(db)
+			require.Equal(t, dir, copy.WorkingDir)
+			require.False(t, copy.ownsWorkingDir)
+			require.True(t, db.Equals(copy))
+			switch operation {
+			case "close copy":
+				require.NoError(t, copy.Close())
+				require.FileExists(t, file)
+			case "close owner":
+				require.NoError(t, db.Close())
+				require.NoFileExists(t, file)
+				require.Empty(t, db.WorkingDir)
+				require.NoError(t, db.Close())
+			case "replace directory":
+				require.NoError(t, db.CreateWorkingDirectory())
+				require.NotEqual(t, dir, db.WorkingDir)
+				require.NoDirExists(t, dir)
+				require.DirExists(t, db.WorkingDir)
+			}
+			require.DirExists(t, parent)
+		})
+	}
+	borrowed := &Database{WorkingDir: t.TempDir()}
+	require.NoError(t, borrowed.Close())
+	require.DirExists(t, borrowed.WorkingDir)
+	require.NoError(t, (*Database)(nil).Close())
+}
+
+func TestDatabaseImportReplacement(t *testing.T) {
+	for _, valid := range []bool{false, true} {
+		name := "failed import preserves files and tables"
+		if valid {
+			name = "successful import releases previous files"
+		}
+		t.Run(name, func(t *testing.T) {
+			parent := t.TempDir()
+			db := &Database{TempDir: parent}
+			archive := filepath.Join("testdata", "backup.jwlibrary")
+			require.NoError(t, db.ImportJWLBackup(archive))
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			dir := db.WorkingDir
+			require.FileExists(t, filepath.Join(dir, userDataFilename))
+			original := MakeDatabaseCopy(db)
+			if valid {
+				require.NoError(t, db.ImportJWLBackup(archive))
+				require.NotEqual(t, dir, db.WorkingDir)
+				require.NoDirExists(t, dir)
+			} else {
+				// This fails after extraction, rather than only before opening a ZIP.
+				broken := filepath.Join(parent, "broken.jwlibrary")
+				require.NoError(t, zipFiles(broken, []string{archive}))
+				require.Error(t, db.ImportJWLBackup(broken))
+				require.Equal(t, dir, db.WorkingDir)
+				require.FileExists(t, filepath.Join(dir, userDataFilename))
+			}
+			require.True(t, db.Equals(original))
+			entries, err := os.ReadDir(parent)
+			require.NoError(t, err)
+			directories := 0
+			for _, entry := range entries {
+				if entry.IsDir() {
+					directories++
+				}
+			}
+			require.Equal(t, 1, directories, "failed candidates must not leak directories")
+			require.FileExists(t, archive, "the original archive is never owned")
+		})
+	}
+}
+
+func TestDatabaseCleanupFailureCanRetry(t *testing.T) {
+	// RemoveAll rejects a path that ends in ".", which lets us make Close fail.
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "owned")
+	require.NoError(t, os.Mkdir(dir, 0700))
+	db := &Database{TempDir: parent, WorkingDir: dir + string(os.PathSeparator) + ".", ownsWorkingDir: true}
+	require.Error(t, db.Close())
+	require.True(t, db.ownsWorkingDir)
+	require.Error(t, db.CreateWorkingDirectory())
+	entries, err := os.ReadDir(parent)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "the new directory must be removed again")
+	db.WorkingDir = dir
+	require.NoError(t, db.Close())
+	require.Empty(t, db.WorkingDir)
+	require.NoDirExists(t, dir)
 }

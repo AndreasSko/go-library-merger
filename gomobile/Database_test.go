@@ -4,11 +4,13 @@
 package gomobile
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/AndreasSko/go-library-merger/model"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var testdataDir = filepath.Join("..", "model", "testdata")
@@ -92,6 +94,7 @@ func TestDatabaseWrapper_ImportJWLBackup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.dbw.TempDir = t.TempDir()
 			err := tt.dbw.ImportJWLBackup(tt.filename, tt.side)
+			t.Cleanup(func() { assert.NoError(t, tt.dbw.Close()) })
 			tt.wantErr(t, err)
 
 			if tt.assertions != nil {
@@ -132,9 +135,11 @@ func TestDatabaseWrapper_Init(t *testing.T) {
 	}
 
 	assert.NoError(t, dbw.ImportJWLBackup(backupFile, "leftSide"))
+	t.Cleanup(func() { assert.NoError(t, dbw.Close()) })
 	assert.NoError(t, dbw.ImportJWLBackup(backupFile, "rightSide"))
+	t.Cleanup(func() { assert.NoError(t, dbw.Close()) })
 
-	dbw.Init()
+	assert.NoError(t, dbw.Init())
 
 	assert.True(t, dbw.merged.Equals(&model.Database{
 		TempDir: dbw.TempDir,
@@ -146,7 +151,7 @@ func TestDatabaseWrapper_Init(t *testing.T) {
 	assert.False(t, dbw.leftTmp.Equals(dbw.left))
 
 	dbw.merged = model.MakeDatabaseCopy(dbw.left)
-	dbw.Init()
+	assert.NoError(t, dbw.Init())
 	assert.True(t, dbw.merged.Equals(&model.Database{
 		TempDir: dbw.TempDir,
 	}))
@@ -163,11 +168,13 @@ func TestDatabaseWrapper_DBIsLoaded(t *testing.T) {
 	assert.False(t, dbw.DBIsLoaded("mergeSide"))
 
 	assert.NoError(t, dbw.ImportJWLBackup(backupFile, "leftSide"))
+	t.Cleanup(func() { assert.NoError(t, dbw.Close()) })
 	assert.True(t, dbw.DBIsLoaded("leftSide"))
 	assert.False(t, dbw.DBIsLoaded("rightSide"))
 	assert.False(t, dbw.DBIsLoaded("mergeSide"))
 
 	assert.NoError(t, dbw.ImportJWLBackup(backupFile, "rightSide"))
+	t.Cleanup(func() { assert.NoError(t, dbw.Close()) })
 	assert.True(t, dbw.DBIsLoaded("leftSide"))
 	assert.True(t, dbw.DBIsLoaded("rightSide"))
 	assert.False(t, dbw.DBIsLoaded("mergeSide"))
@@ -185,12 +192,14 @@ func TestDatabaseWrapper_ExportMerged(t *testing.T) {
 	dbw.merged = &model.Database{}
 
 	assert.NoError(t, dbw.merged.ImportJWLBackup(backupFile))
+	t.Cleanup(func() { assert.NoError(t, dbw.merged.Close()) })
 
 	newBackup := filepath.Join(tmp, "test.jwlibrary")
 	assert.NoError(t, dbw.ExportMerged(newBackup))
 
 	newDB := &model.Database{}
 	assert.NoError(t, newDB.ImportJWLBackup(newBackup))
+	t.Cleanup(func() { assert.NoError(t, newDB.Close()) })
 	assert.True(t, dbw.merged.Equals(newDB))
 }
 
@@ -264,6 +273,64 @@ func TestDatabaseWrapper_DBContainsPlaylists(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.dbWrapper.DBContainsPlaylists(tt.side)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestDatabaseWrapperWorkingDirectoryLifecycle(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		check func(*testing.T, *DatabaseWrapper)
+	}{
+		{"invalid side allocates nothing", func(t *testing.T, db *DatabaseWrapper) {
+			require.Error(t, db.ImportJWLBackup(filepath.Join("..", "model", "testdata", "backup.jwlibrary"), "invalid"))
+			entries, err := os.ReadDir(db.TempDir)
+			require.NoError(t, err)
+			require.Empty(t, entries)
+			require.Nil(t, db.left)
+			require.Nil(t, db.right)
+		}},
+		{"reinitializing closes output but keeps inputs", func(t *testing.T, db *DatabaseWrapper) {
+			path := filepath.Join("..", "model", "testdata", "backup.jwlibrary")
+			require.NoError(t, db.ImportJWLBackup(path, "leftSide"))
+			require.NoError(t, db.ImportJWLBackup(path, "rightSide"))
+			left, right := db.left.WorkingDir, db.right.WorkingDir
+			require.NoError(t, db.Init())
+			require.NoError(t, db.merged.CreateWorkingDirectory())
+			output := db.merged.WorkingDir
+			require.NoError(t, db.Init())
+			require.NoDirExists(t, output)
+			require.DirExists(t, left)
+			require.DirExists(t, right)
+			require.Equal(t, left, db.leftTmp.WorkingDir)
+			require.Equal(t, right, db.rightTmp.WorkingDir)
+		}},
+		{"close releases session and is idempotent", func(t *testing.T, db *DatabaseWrapper) {
+			path := filepath.Join("..", "model", "testdata", "backup.jwlibrary")
+			require.NoError(t, db.ImportJWLBackup(path, "leftSide"))
+			require.NoError(t, db.ImportJWLBackup(path, "rightSide"))
+			require.NoError(t, db.Init())
+			require.NoError(t, db.merged.CreateWorkingDirectory())
+			dirs := []string{db.left.WorkingDir, db.right.WorkingDir, db.merged.WorkingDir}
+			require.NoError(t, db.Close())
+			for _, dir := range dirs {
+				require.NoDirExists(t, dir)
+			}
+			for _, side := range []string{"leftSide", "rightSide", "mergeSide"} {
+				require.False(t, db.DBIsLoaded(side))
+			}
+			for _, owner := range []*model.Database{db.left, db.right, db.merged, db.leftTmp, db.rightTmp} {
+				require.Nil(t, owner)
+			}
+			require.NoError(t, db.Close())
+			require.Error(t, db.Init())
+			require.DirExists(t, db.TempDir, "the caller owns the parent directory")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := &DatabaseWrapper{TempDir: t.TempDir()}
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			tc.check(t, db)
 		})
 	}
 }

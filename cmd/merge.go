@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -12,8 +13,6 @@ import (
 	"github.com/buger/goterm"
 	"github.com/jedib0t/go-pretty/table"
 	"github.com/spf13/cobra"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // mergeCmd represents the merge command
@@ -53,11 +52,12 @@ var InputFieldResolver string
 // It is meant as a temporary workaround until merging of playlists is implemented.
 var SkipPlaylists bool
 
-func merge(leftFilename string, rightFilename string, mergedFilename string, stdio terminal.Stdio) error {
+func merge(leftFilename string, rightFilename string, mergedFilename string, stdio terminal.Stdio) (resultErr error) {
 	fmt.Fprintln(stdio.Out, "Importing left backup")
 	left := model.Database{
 		SkipPlaylists: SkipPlaylists,
 	}
+	defer func() { resultErr = errors.Join(resultErr, left.Close()) }()
 	err := left.ImportJWLBackup(leftFilename)
 	if err != nil {
 		return fmt.Errorf("failed to import left backup: %w", err)
@@ -67,6 +67,7 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 	right := model.Database{
 		SkipPlaylists: SkipPlaylists,
 	}
+	defer func() { resultErr = errors.Join(resultErr, right.Close()) }()
 	err = right.ImportJWLBackup(rightFilename)
 	if err != nil {
 		return fmt.Errorf("failed to import right backup: %w", err)
@@ -76,6 +77,7 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 	merger.PrepareDatabasesPreMerge(&left, &right)
 
 	merged := model.Database{}
+	defer func() { resultErr = errors.Join(resultErr, merged.Close()) }()
 
 	fmt.Fprintln(stdio.Out, "🧭 Merging Locations")
 	mergedLocations, locationIDChanges, err := merger.MergeLocations(left.Location, right.Location)
@@ -105,11 +107,14 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 				var resErr error
 				newSolutions, resErr := merger.AutoResolveConflicts(err.Conflicts, BookmarkResolver)
 				if resErr != nil {
-					log.Fatal(resErr)
+					return resErr
 				}
 				addToSolutions(bookmarksConflictSolution, newSolutions)
 			} else {
-				newSolutions := handleMergeConflict(err.Conflicts, &merged, stdio)
+				newSolutions, selectionErr := handleMergeConflict(err.Conflicts, &merged, stdio)
+				if selectionErr != nil {
+					return selectionErr
+				}
 				addToSolutions(bookmarksConflictSolution, newSolutions)
 			}
 		default:
@@ -132,11 +137,14 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 				var resErr error
 				newSolutions, resErr := merger.AutoResolveConflicts(err.Conflicts, InputFieldResolver)
 				if resErr != nil {
-					log.Fatal(resErr)
+					return resErr
 				}
 				addToSolutions(inputFieldConflictSolution, newSolutions)
 			} else {
-				newSolutions := handleMergeConflict(err.Conflicts, &merged, stdio)
+				newSolutions, selectionErr := handleMergeConflict(err.Conflicts, &merged, stdio)
+				if selectionErr != nil {
+					return selectionErr
+				}
 				addToSolutions(inputFieldConflictSolution, newSolutions)
 			}
 		default:
@@ -156,7 +164,11 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 		}
 		switch err := err.(type) {
 		case merger.MergeConflictError:
-			tagsConflictSolution = handleMergeConflict(err.Conflicts, nil, stdio) // TODO
+			resolved, selectionErr := handleMergeConflict(err.Conflicts, nil, stdio)
+			if selectionErr != nil {
+				return selectionErr
+			}
+			tagsConflictSolution = resolved
 		default:
 			return fmt.Errorf("failed to merge tags: %w", err)
 		}
@@ -179,11 +191,14 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 				var resErr error
 				newSolutions, resErr := merger.AutoResolveConflicts(err.Conflicts, MarkingResolver)
 				if resErr != nil {
-					log.Fatal(resErr)
+					return resErr
 				}
 				addToSolutions(UMBRConflictSolution, newSolutions)
 			} else {
-				newSolutions := handleMergeConflict(err.Conflicts, &merged, stdio)
+				newSolutions, selectionErr := handleMergeConflict(err.Conflicts, &merged, stdio)
+				if selectionErr != nil {
+					return selectionErr
+				}
 				addToSolutions(UMBRConflictSolution, newSolutions)
 			}
 		default:
@@ -207,11 +222,14 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 				var resErr error
 				newSolutions, resErr := merger.AutoResolveConflicts(err.Conflicts, NoteResolver)
 				if resErr != nil {
-					log.Fatal(resErr)
+					return resErr
 				}
 				addToSolutions(notesConflictSolution, newSolutions)
 			} else {
-				newSolutions := handleMergeConflict(err.Conflicts, &merged, stdio)
+				newSolutions, selectionErr := handleMergeConflict(err.Conflicts, &merged, stdio)
+				if selectionErr != nil {
+					return selectionErr
+				}
 				addToSolutions(notesConflictSolution, newSolutions)
 			}
 		default:
@@ -230,7 +248,11 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 		}
 		switch err := err.(type) {
 		case merger.MergeConflictError:
-			tagMapsConflictSolution = handleMergeConflict(err.Conflicts, nil, stdio)
+			resolved, selectionErr := handleMergeConflict(err.Conflicts, nil, stdio)
+			if selectionErr != nil {
+				return selectionErr
+			}
+			tagMapsConflictSolution = resolved
 		default:
 			return fmt.Errorf("failed to merge tagMaps: %w", err)
 		}
@@ -259,7 +281,7 @@ func addToSolutions(solutions map[string]merger.MergeSolution, new map[string]me
 	}
 }
 
-func handleMergeConflict(conflicts map[string]merger.MergeConflict, mergedDB *model.Database, stdio terminal.Stdio) map[string]merger.MergeSolution {
+func handleMergeConflict(conflicts map[string]merger.MergeConflict, mergedDB *model.Database, stdio terminal.Stdio) (map[string]merger.MergeSolution, error) {
 	helpText := ""
 	for _, val := range conflicts {
 		helpText = mergeConflictHelp(reflect.TypeOf(val.Left).String())
@@ -284,7 +306,7 @@ func handleMergeConflict(conflicts map[string]merger.MergeConflict, mergedDB *mo
 			SeparateRows:    true,
 		}
 
-		t.SetOutputMirror(os.Stdout)
+		t.SetOutputMirror(stdio.Out)
 		if goterm.Width() >= 190 {
 			t.AppendHeader(table.Row{"Left", "Right"})
 			t.AppendRow([]interface{}{conflict.Left.PrettyPrint(mergedDB), conflict.Right.PrettyPrint(mergedDB)})
@@ -298,11 +320,8 @@ func handleMergeConflict(conflicts map[string]merger.MergeConflict, mergedDB *mo
 
 		var selected string
 		err := survey.AskOne(prompt, &selected, survey.WithStdio(stdio.In, stdio.Out, stdio.Err))
-		if err == terminal.InterruptErr {
-			fmt.Fprintln(stdio.Out, "interrupted")
-			os.Exit(0)
-		} else if err != nil {
-			panic(err)
+		if err != nil {
+			return nil, fmt.Errorf("conflict selection canceled or unavailable: %w", err)
 		}
 
 		if selected == "Left" {
@@ -320,7 +339,7 @@ func handleMergeConflict(conflicts map[string]merger.MergeConflict, mergedDB *mo
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 func init() {

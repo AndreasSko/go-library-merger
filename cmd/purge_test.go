@@ -11,6 +11,7 @@ import (
 	"github.com/AndreasSko/go-library-merger/model"
 	expect "github.com/Netflix/go-expect"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_purge(t *testing.T) {
@@ -32,7 +33,7 @@ func Test_purge(t *testing.T) {
 			Tables = "Note,Tag,TagMap"
 
 			outputFilename := filepath.Join(tmp, "1.jwlibrary")
-			purge(inputFilename, outputFilename, terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+			require.NoError(t, purge(inputFilename, outputFilename, terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 
 			want := model.MakeDatabaseCopy(leftDB)
 			want.Note = []*model.Note{nil}
@@ -40,7 +41,8 @@ func Test_purge(t *testing.T) {
 			want.TagMap = []*model.TagMap{nil}
 
 			output := &model.Database{}
-			assert.NoError(t, output.ImportJWLBackup(outputFilename))
+			require.NoError(t, output.ImportJWLBackup(outputFilename))
+			defer func() { require.NoError(t, output.Close()) }()
 			assert.True(t, want.Equals(output))
 		})
 }

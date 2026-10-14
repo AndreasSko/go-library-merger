@@ -2,6 +2,7 @@ package gomobile
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/AndreasSko/go-library-merger/merger"
 	"github.com/AndreasSko/go-library-merger/model"
@@ -106,8 +107,31 @@ func (dbw *DatabaseWrapper) DBContainsPlaylists(side string) bool {
 
 // ExportMerged exports the merged database to filename.
 func (dbw *DatabaseWrapper) ExportMerged(filename string) error {
-	merger.PrepareDatabasesPostMerge(dbw.merged)
+	if dbw.merged == nil {
+		return errors.New("merge has not been initialized")
+	}
+	if err := merger.PrepareDatabasesPostMerge(dbw.merged); err != nil {
+		return err
+	}
 	return dbw.merged.ExportJWLBackup(filename)
+}
+
+// PlaylistThumbnail returns the thumbnail of a playlist item in the imported
+// backup on the given side, or the default thumbnail if the item has none.
+func (dbw *DatabaseWrapper) PlaylistThumbnail(side string, playlistItemID int) ([]byte, error) {
+	var db *model.Database
+	switch side {
+	case "leftSide":
+		db = dbw.left
+	case "rightSide":
+		db = dbw.right
+	default:
+		return nil, fmt.Errorf("invalid database side %q", side)
+	}
+	if db == nil {
+		return nil, fmt.Errorf("database side %q is not loaded", side)
+	}
+	return db.PlaylistThumbnail(playlistItemID)
 }
 
 // Close releases temporary files after export or cancellation.

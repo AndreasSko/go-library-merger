@@ -17,6 +17,7 @@ func Test_MergeMultiCollisionAllRight(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftMultiCollision),
 		right: model.MakeDatabaseCopy(rightMultiCollision),
 	}
+	defer func() { assert.NoError(t, dbw.Close()) }()
 	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
@@ -66,6 +67,7 @@ func Test_MergeMultiCollisionAllExceptOneRight(t *testing.T) {
 			left:  model.MakeDatabaseCopy(leftMultiCollision),
 			right: model.MakeDatabaseCopy(rightMultiCollision),
 		}
+		defer func() { assert.NoError(t, dbw.Close()) }()
 		assert.NoError(t, dbw.Init())
 
 		mcw := &MergeConflictsWrapper{}
@@ -126,6 +128,7 @@ func Test_MergeMultiCollisionAutoSolver(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftMultiCollision),
 		right: model.MakeDatabaseCopy(rightMultiCollision),
 	}
+	defer func() { assert.NoError(t, dbw.Close()) }()
 	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
@@ -145,6 +148,7 @@ func Test_MergeNwt(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftNwtDB),
 		right: model.MakeDatabaseCopy(rightNwtDB),
 	}
+	defer func() { assert.NoError(t, dbw.Close()) }()
 	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
@@ -168,6 +172,7 @@ func Test_MergeNwtDifferentDocID(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftDBNwtWithDifferentDocID),
 		right: model.MakeDatabaseCopy(rightDBNwtWithDifferentDocID),
 	}
+	defer func() { assert.NoError(t, dbw.Close()) }()
 	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
@@ -183,8 +188,8 @@ func Test_MergeNwtDifferentDocID(t *testing.T) {
 	assert.NoError(t, dbw.ExportMerged(newBackup))
 
 	newDB := &model.Database{}
+	defer func() { assert.NoError(t, newDB.Close()) }()
 	assert.NoError(t, newDB.ImportJWLBackup(newBackup))
-	t.Cleanup(func() { assert.NoError(t, newDB.Close()) })
 
 	assert.True(t, newDB.Equals(mergedDBNwtWithDifferentDocID))
 }
@@ -353,6 +358,7 @@ func Test_MergeWithEmpty(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftDB),
 		right: model.MakeDatabaseCopy(emptyDB),
 	}
+	defer func() { assert.NoError(t, dbw.Close()) }()
 	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
@@ -374,6 +380,7 @@ func Test_MergeAllRight(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftDB),
 		right: model.MakeDatabaseCopy(rightDB),
 	}
+	defer func() { assert.NoError(t, dbw.Close()) }()
 	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
@@ -423,6 +430,7 @@ func Test_MergeAllLeft(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftDB),
 		right: model.MakeDatabaseCopy(rightDB),
 	}
+	defer func() { assert.NoError(t, dbw.Close()) }()
 	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
@@ -473,6 +481,7 @@ func Test_MergeWithAutoresolution(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftDB),
 		right: model.MakeDatabaseCopy(rightDB),
 	}
+	defer func() { assert.NoError(t, dbw.Close()) }()
 	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}

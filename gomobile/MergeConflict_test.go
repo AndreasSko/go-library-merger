@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 package gomobile
@@ -102,7 +103,8 @@ func TestMergeConflictsWrapper_NextConflict(t *testing.T) {
 
 	expectedConflicts := map[string]*MergeConflict{
 		"1": {
-			Key: "1",
+			Key:           "1",
+			ChangedFields: "[]",
 			Left: jsonMarhshalIgnoreErr(modelRelatedTuple{
 				Model:   mcw.conflicts["1"].Left,
 				Related: model.Related{Location: db.Location[1], PublicationLocation: db.Location[1]},
@@ -113,7 +115,8 @@ func TestMergeConflictsWrapper_NextConflict(t *testing.T) {
 			}),
 		},
 		"2": {
-			Key: "2",
+			Key:           "2",
+			ChangedFields: "[]",
 			Left: jsonMarhshalIgnoreErr(modelRelatedTuple{
 				Model:   mcw.conflicts["2"].Left,
 				Related: model.Related{},

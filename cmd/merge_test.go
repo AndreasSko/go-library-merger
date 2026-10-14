@@ -236,15 +236,14 @@ func Test_merge(t *testing.T) {
 	// Attempt to merge with playlists, while skipPlaylists is set to false
 	RunCmdTest(t,
 		func(t *testing.T, c *expect.Console) {
-			c.ExpectString("Error: failed to import left backup: merging of playlists is not supported yet. " +
-				"Enable SkipPlaylists flag to skip this safety check")
-			c.ExpectEOF()
+			_, err := c.ExpectEOF()
+			require.NoError(t, err)
 		},
 		func(t *testing.T, c *expect.Console) {
-			merge("../model/testdata/backup_withPlaylist.jwlibrary",
+			require.Error(t, merge("../model/testdata/backup_withPlaylist.jwlibrary",
 				"../model/testdata/backup_withPlaylist.jwlibrary",
 				mergedFilename,
-				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 		},
 	)
 
@@ -257,10 +256,10 @@ func Test_merge(t *testing.T) {
 		func(t *testing.T, c *expect.Console) {
 			SkipPlaylists = true
 			defer func() { SkipPlaylists = false }()
-			merge("../model/testdata/backup_withPlaylist.jwlibrary",
+			require.NoError(t, merge("../model/testdata/backup_withPlaylist.jwlibrary",
 				"../model/testdata/backup_withPlaylist.jwlibrary",
 				mergedFilename,
-				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 		},
 	)
 }

@@ -19,6 +19,7 @@ func (dbw *DatabaseWrapper) MergeLocations() error {
 	merger.UpdateLRIDs(dbw.leftTmp.Note, dbw.rightTmp.Note, "LocationID", locationIDChanges)
 	merger.UpdateLRIDs(dbw.leftTmp.TagMap, dbw.rightTmp.TagMap, "LocationID", locationIDChanges)
 	merger.UpdateLRIDs(dbw.leftTmp.UserMark, dbw.rightTmp.UserMark, "LocationID", locationIDChanges)
+	merger.UpdateLRIDs(dbw.leftTmp.PlaylistItemLocationMap, dbw.rightTmp.PlaylistItemLocationMap, "LocationID", locationIDChanges)
 
 	return nil
 }
@@ -190,5 +191,38 @@ func (dbw *DatabaseWrapper) MergeTagMaps() error {
 func addToSolutions(solutions map[string]merger.MergeSolution, new map[string]merger.MergeSolution) {
 	for key, value := range new {
 		solutions[key] = value
+	}
+}
+
+// MergePlaylists merges playlist items and media. Call it once after
+// MergeLocations and MergeTags, and before MergeTagMaps, because it changes
+// the playlist entries of the TagMaps. Conflicts can be resolved with
+// chooseLeft/chooseRight or mcw.
+func (dbw *DatabaseWrapper) MergePlaylists(conflictSolver string, mcw *MergeConflictsWrapper) error {
+	if mcw == nil {
+		mcw = &MergeConflictsWrapper{}
+	}
+	solutions := mcw.solutions
+	if solutions == nil {
+		solutions = map[string]merger.MergeSolution{}
+	}
+	for {
+		err := merger.MergePlaylists(dbw.leftTmp, dbw.rightTmp, dbw.merged, solutions)
+		if err == nil {
+			return nil
+		}
+		conflict, ok := err.(merger.MergeConflictError)
+		if !ok {
+			return errors.Wrap(err, "Could not merge playlists")
+		}
+		if conflictSolver == "" {
+			mcw.addConflicts(conflict.Conflicts)
+			return MergeConflictError{}
+		}
+		resolved, err := merger.AutoResolveConflicts(conflict.Conflicts, conflictSolver)
+		if err != nil {
+			return err
+		}
+		addToSolutions(solutions, resolved)
 	}
 }

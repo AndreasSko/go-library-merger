@@ -10,14 +10,16 @@ import (
 // within a Database{} by defining it as the length
 // of the slices.
 type DatabaseStats struct {
-	BlockRange int
-	Bookmark   int
-	InputField int
-	Location   int
-	Note       int
-	Tag        int
-	TagMap     int
-	UserMark   int
+	BlockRange   int
+	Bookmark     int
+	InputField   int
+	Location     int
+	Note         int
+	Tag          int
+	TagMap       int
+	UserMark     int
+	Playlist     int
+	PlaylistItem int
 }
 
 // Stats generates a DatabaseStats for the given mergeSide
@@ -39,15 +41,23 @@ func (dbw *DatabaseWrapper) Stats(side string) *DatabaseStats {
 		return &DatabaseStats{}
 	}
 
+	playlists := 0
+	for _, tag := range db.Tag {
+		if tag != nil && tag.TagType == 2 {
+			playlists++
+		}
+	}
 	return &DatabaseStats{
-		BlockRange: countSliceEntries(db.BlockRange),
-		Bookmark:   countSliceEntries(db.Bookmark),
-		InputField: countSliceEntries(db.InputField),
-		Location:   countSliceEntries(db.Location),
-		Note:       countSliceEntries(db.Note),
-		Tag:        countSliceEntries(db.Tag),
-		TagMap:     countSliceEntries(db.TagMap),
-		UserMark:   countSliceEntries(db.UserMark),
+		Playlist:     playlists,
+		PlaylistItem: countSliceEntries(db.PlaylistItem),
+		BlockRange:   countSliceEntries(db.BlockRange),
+		Bookmark:     countSliceEntries(db.Bookmark),
+		InputField:   countSliceEntries(db.InputField),
+		Location:     countSliceEntries(db.Location),
+		Note:         countSliceEntries(db.Note),
+		Tag:          countSliceEntries(db.Tag),
+		TagMap:       countSliceEntries(db.TagMap),
+		UserMark:     countSliceEntries(db.UserMark),
 	}
 }
 

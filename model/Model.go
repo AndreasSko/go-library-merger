@@ -28,15 +28,19 @@ type Model interface {
 
 // Related combines entries that are related to a given model
 type Related struct {
-	BlockRange          []*BlockRange       `json:"blockRange"`
-	Bookmark            *Bookmark           `json:"bookmark"`
-	Location            *Location           `json:"location"`
-	PublicationLocation *Location           `json:"publicationLocation"`
-	Note                *Note               `json:"note"`
-	Tag                 *Tag                `json:"tag"`
-	TagMap              *TagMap             `json:"tagMap"`
-	UserMark            *UserMark           `json:"userMark"`
-	UserMarkBlockRange  *UserMarkBlockRange `json:"userMarkBlockRange"`
+	BlockRange                      []*BlockRange                      `json:"blockRange"`
+	Bookmark                        *Bookmark                          `json:"bookmark"`
+	IndependentMedia                *IndependentMedia                  `json:"independentMedia"`
+	Location                        *Location                          `json:"location"`
+	PublicationLocation             *Location                          `json:"publicationLocation"`
+	Note                            *Note                              `json:"note"`
+	PlaylistItem                    *PlaylistItem                      `json:"playlistItem"`
+	PlaylistItemIndependentMediaMap []*PlaylistItemIndependentMediaMap `json:"playlistItemIndependentMediaMap"`
+	PlaylistItemLocationMap         []*PlaylistItemLocationMap         `json:"playlistItemLocationMap"`
+	Tag                             *Tag                               `json:"tag"`
+	TagMap                          *TagMap                            `json:"tagMap"`
+	UserMark                        *UserMark                          `json:"userMark"`
+	UserMarkBlockRange              *UserMarkBlockRange                `json:"userMarkBlockRange"`
 }
 
 // MakeModelSlice converts a slice of pointers of model-implementing structs to []model
@@ -59,9 +63,8 @@ func MakeModelSlice(arg interface{}) ([]Model, error) {
 // model-implementing struct) to a new Model
 func MakeModelCopy(mdl Model) Model {
 	var mdlCopy Model
-	switch mdl.(type) {
+	switch mdl := mdl.(type) {
 	case *BlockRange:
-		mdl := mdl.(*BlockRange)
 		mdlCopy = &BlockRange{
 			BlockRangeID: mdl.BlockRangeID,
 			BlockType:    mdl.BlockType,
@@ -71,7 +74,6 @@ func MakeModelCopy(mdl Model) Model {
 			UserMarkID:   mdl.UserMarkID,
 		}
 	case *Bookmark:
-		mdl := mdl.(*Bookmark)
 		mdlCopy = &Bookmark{
 			BookmarkID:            mdl.BookmarkID,
 			LocationID:            mdl.LocationID,
@@ -83,7 +85,6 @@ func MakeModelCopy(mdl Model) Model {
 			BlockIdentifier:       sql.NullInt32{Int32: mdl.BlockIdentifier.Int32, Valid: mdl.BlockIdentifier.Valid},
 		}
 	case *InputField:
-		mdl := mdl.(*InputField)
 		mdlCopy = &InputField{
 			LocationID: mdl.LocationID,
 			TextTag:    mdl.TextTag,
@@ -91,7 +92,6 @@ func MakeModelCopy(mdl Model) Model {
 			pseudoID:   mdl.pseudoID,
 		}
 	case *Location:
-		mdl := mdl.(*Location)
 		mdlCopy = &Location{
 			LocationID:     mdl.LocationID,
 			BookNumber:     sql.NullInt32{Int32: mdl.BookNumber.Int32, Valid: mdl.BookNumber.Valid},
@@ -107,7 +107,6 @@ func MakeModelCopy(mdl Model) Model {
 			Edition:        sql.NullString{String: mdl.Edition.String, Valid: mdl.Edition.Valid},
 		}
 	case *Note:
-		mdl := mdl.(*Note)
 		mdlCopy = &Note{
 			NoteID:          mdl.NoteID,
 			GUID:            mdl.GUID,
@@ -121,14 +120,12 @@ func MakeModelCopy(mdl Model) Model {
 			BlockIdentifier: sql.NullInt32{Int32: mdl.BlockIdentifier.Int32, Valid: mdl.BlockIdentifier.Valid},
 		}
 	case *Tag:
-		mdl := mdl.(*Tag)
 		mdlCopy = &Tag{
 			TagID:   mdl.TagID,
 			TagType: mdl.TagType,
 			Name:    mdl.Name,
 		}
 	case *TagMap:
-		mdl := mdl.(*TagMap)
 		mdlCopy = &TagMap{
 			TagMapID:       mdl.TagMapID,
 			PlaylistItemID: sql.NullInt32{Int32: mdl.PlaylistItemID.Int32, Valid: mdl.PlaylistItemID.Valid},
@@ -138,7 +135,6 @@ func MakeModelCopy(mdl Model) Model {
 			Position:       mdl.Position,
 		}
 	case *UserMark:
-		mdl := mdl.(*UserMark)
 		mdlCopy = &UserMark{
 			UserMarkID:   mdl.UserMarkID,
 			ColorIndex:   mdl.ColorIndex,
@@ -147,8 +143,45 @@ func MakeModelCopy(mdl Model) Model {
 			UserMarkGUID: mdl.UserMarkGUID,
 			Version:      mdl.Version,
 		}
+	case *IndependentMedia:
+		mdlCopy = &IndependentMedia{
+			IndependentMediaID: mdl.IndependentMediaID,
+			OriginalFilename:   mdl.OriginalFilename,
+			FilePath:           mdl.FilePath,
+			MimeType:           mdl.MimeType,
+			Hash:               mdl.Hash,
+			contentHash:        mdl.contentHash,
+		}
+	case *PlaylistItem:
+		mdlCopy = &PlaylistItem{
+			PlaylistItemID:       mdl.PlaylistItemID,
+			tag:                  mdl.tag,
+			independentMedia:     mdl.independentMedia,
+			location:             mdl.location,
+			repeatIndex:          mdl.repeatIndex,
+			Label:                mdl.Label,
+			StartTrimOffsetTicks: sql.NullInt64{Int64: mdl.StartTrimOffsetTicks.Int64, Valid: mdl.StartTrimOffsetTicks.Valid},
+			EndTrimOffsetTicks:   sql.NullInt64{Int64: mdl.EndTrimOffsetTicks.Int64, Valid: mdl.EndTrimOffsetTicks.Valid},
+			Accuracy:             mdl.Accuracy,
+			EndAction:            mdl.EndAction,
+			ThumbnailFilePath:    sql.NullString{String: mdl.ThumbnailFilePath.String, Valid: mdl.ThumbnailFilePath.Valid},
+		}
+	case *PlaylistItemIndependentMediaMap:
+		mdlCopy = &PlaylistItemIndependentMediaMap{
+			pseudoID:           mdl.pseudoID,
+			PlaylistItemID:     mdl.PlaylistItemID,
+			IndependentMediaID: mdl.IndependentMediaID,
+			DurationTicks:      mdl.DurationTicks,
+		}
+	case *PlaylistItemLocationMap:
+		mdlCopy = &PlaylistItemLocationMap{
+			pseudoID:            mdl.pseudoID,
+			PlaylistItemID:      mdl.PlaylistItemID,
+			LocationID:          mdl.LocationID,
+			MajorMultimediaType: mdl.MajorMultimediaType,
+			BaseDurationTicks:   sql.NullInt64{Int64: mdl.BaseDurationTicks.Int64, Valid: mdl.BaseDurationTicks.Valid},
+		}
 	case *UserMarkBlockRange:
-		mdl := mdl.(*UserMarkBlockRange)
 
 		brSliceCopy := make([]*BlockRange, len(mdl.BlockRanges))
 		for i, br := range mdl.BlockRanges {

@@ -27,6 +27,7 @@ func PrepareDatabasesPreMerge(left *model.Database, right *model.Database) {
 	UpdateLRIDs(left.Note, right.Note, "LocationID", locationIDChanges)
 	UpdateLRIDs(left.TagMap, right.TagMap, "LocationID", locationIDChanges)
 	UpdateLRIDs(left.UserMark, right.UserMark, "LocationID", locationIDChanges)
+	UpdateLRIDs(left.PlaylistItemLocationMap, right.PlaylistItemLocationMap, "LocationID", locationIDChanges)
 }
 
 // PrepareDatabasesPostMerge bundles function calls that check the integrity of the

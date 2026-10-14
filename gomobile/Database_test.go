@@ -63,12 +63,12 @@ func TestDatabaseWrapper_ImportJWLBackup(t *testing.T) {
 			},
 		},
 		{
-			name:     "contains playlists, skip playlists not set",
+			name:     "playlist archive missing its media",
 			dbw:      &DatabaseWrapper{},
 			filename: filepath.Join(testdataDir, "backup_withPlaylist.jwlibrary"),
 			side:     "leftSide",
 			wantErr: func(tt assert.TestingT, err error, i ...interface{}) bool {
-				return assert.ErrorContains(tt, err, "merging of playlists is not supported yet")
+				return assert.ErrorContains(tt, err, "validateIndependentMedia")
 			},
 		},
 		{
@@ -93,8 +93,8 @@ func TestDatabaseWrapper_ImportJWLBackup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.dbw.TempDir = t.TempDir()
-			err := tt.dbw.ImportJWLBackup(tt.filename, tt.side)
 			t.Cleanup(func() { assert.NoError(t, tt.dbw.Close()) })
+			err := tt.dbw.ImportJWLBackup(tt.filename, tt.side)
 			tt.wantErr(t, err)
 
 			if tt.assertions != nil {
@@ -133,11 +133,10 @@ func TestDatabaseWrapper_Init(t *testing.T) {
 	dbw := &DatabaseWrapper{
 		TempDir: t.TempDir(),
 	}
+	defer func() { assert.NoError(t, dbw.Close()) }()
 
 	assert.NoError(t, dbw.ImportJWLBackup(backupFile, "leftSide"))
-	t.Cleanup(func() { assert.NoError(t, dbw.Close()) })
 	assert.NoError(t, dbw.ImportJWLBackup(backupFile, "rightSide"))
-	t.Cleanup(func() { assert.NoError(t, dbw.Close()) })
 
 	assert.NoError(t, dbw.Init())
 
@@ -162,19 +161,18 @@ func TestDatabaseWrapper_Init(t *testing.T) {
 
 func TestDatabaseWrapper_DBIsLoaded(t *testing.T) {
 	dbw := &DatabaseWrapper{}
+	defer func() { assert.NoError(t, dbw.Close()) }()
 
 	assert.False(t, dbw.DBIsLoaded("leftSide"))
 	assert.False(t, dbw.DBIsLoaded("rightSide"))
 	assert.False(t, dbw.DBIsLoaded("mergeSide"))
 
 	assert.NoError(t, dbw.ImportJWLBackup(backupFile, "leftSide"))
-	t.Cleanup(func() { assert.NoError(t, dbw.Close()) })
 	assert.True(t, dbw.DBIsLoaded("leftSide"))
 	assert.False(t, dbw.DBIsLoaded("rightSide"))
 	assert.False(t, dbw.DBIsLoaded("mergeSide"))
 
 	assert.NoError(t, dbw.ImportJWLBackup(backupFile, "rightSide"))
-	t.Cleanup(func() { assert.NoError(t, dbw.Close()) })
 	assert.True(t, dbw.DBIsLoaded("leftSide"))
 	assert.True(t, dbw.DBIsLoaded("rightSide"))
 	assert.False(t, dbw.DBIsLoaded("mergeSide"))
@@ -189,17 +187,17 @@ func TestDatabaseWrapper_ExportMerged(t *testing.T) {
 	tmp := t.TempDir()
 
 	dbw := &DatabaseWrapper{}
+	defer func() { assert.NoError(t, dbw.Close()) }()
 	dbw.merged = &model.Database{}
 
 	assert.NoError(t, dbw.merged.ImportJWLBackup(backupFile))
-	t.Cleanup(func() { assert.NoError(t, dbw.merged.Close()) })
 
 	newBackup := filepath.Join(tmp, "test.jwlibrary")
 	assert.NoError(t, dbw.ExportMerged(newBackup))
 
 	newDB := &model.Database{}
+	defer func() { assert.NoError(t, newDB.Close()) }()
 	assert.NoError(t, newDB.ImportJWLBackup(newBackup))
-	t.Cleanup(func() { assert.NoError(t, newDB.Close()) })
 	assert.True(t, dbw.merged.Equals(newDB))
 }
 

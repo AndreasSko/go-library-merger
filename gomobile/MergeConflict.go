@@ -33,9 +33,10 @@ type MergeConflictsWrapper struct {
 // to merger.MergeConflict, but represents the Models as strings
 // to make it compatible with Gomobile.
 type MergeConflict struct {
-	Key   string
-	Left  string
-	Right string
+	Key           string
+	Left          string
+	Right         string
+	ChangedFields string // JSON array of meaningful playlist setting field names.
 }
 
 // modelRelatedTuple contains a model and its related entries
@@ -92,6 +93,11 @@ func (mcw *MergeConflictsWrapper) NextConflict() (*MergeConflict, error) {
 	result := &MergeConflict{
 		Key: conflictKey,
 	}
+	changed, err := json.Marshal(model.PlaylistChangedFields(conflict.Left, conflict.Right))
+	if err != nil {
+		return nil, err
+	}
+	result.ChangedFields = string(changed)
 	jsn, err := json.Marshal(modelRelatedTuple{
 		Model:   conflict.Left,
 		Related: conflict.Left.RelatedEntries(mcw.DBWrapper.merged),

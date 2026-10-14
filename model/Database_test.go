@@ -514,12 +514,10 @@ func TestDatabase_importSQLite(t *testing.T) {
 			},
 		},
 		{
-			name:     "Playlists included, error!",
-			db:       &Database{},
-			filename: filepath.Join("testdata", "userData_withPlaylist.db"),
-			wantErr: func(tt assert.TestingT, err error, i ...interface{}) bool {
-				return assert.ErrorContains(t, err, "merging of playlists is not supported yet")
-			},
+			name:       "Playlists included",
+			db:         &Database{},
+			filename:   filepath.Join("testdata", "userData_withPlaylist.db"),
+			wantErr:    assert.NoError,
 			assertions: func(t *testing.T, db *Database) {},
 		},
 		{
@@ -546,259 +544,12 @@ func TestDatabase_importSQLite(t *testing.T) {
 	}
 }
 
-func TestDatabase_removePlaylists(t *testing.T) {
-	tests := []struct {
-		name   string
-		db     *Database
-		wantDB *Database
-	}{
-		{
-			name: "No playlists",
-			db: &Database{
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 0,
-					},
-					{
-						TagID:   2,
-						TagType: 1,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					{
-						TagMapID:   1,
-						TagID:      1,
-						LocationID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-					nil,
-					{
-						TagMapID:   3,
-						TagID:      2,
-						LocationID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-				},
-			},
-			wantDB: &Database{
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 0,
-					},
-					{
-						TagID:   2,
-						TagType: 1,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					{
-						TagMapID:   1,
-						TagID:      1,
-						LocationID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-					nil,
-					{
-						TagMapID:   3,
-						TagID:      2,
-						LocationID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-				},
-			},
-		},
-		{
-			name: "Playlist tag included",
-			db: &Database{
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 2,
-					},
-					{
-						TagID:   2,
-						TagType: 1,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					{
-						TagMapID:   1,
-						TagID:      1,
-						LocationID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-					nil,
-					{
-						TagMapID:   3,
-						TagID:      2,
-						LocationID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-				},
-			},
-			wantDB: &Database{
-				ContainsPlaylists: true,
-				Tag: []*Tag{
-					nil,
-					nil,
-					{
-						TagID:   2,
-						TagType: 1,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					{
-						TagMapID:   1,
-						TagID:      1,
-						LocationID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-					nil,
-					{
-						TagMapID:   3,
-						TagID:      2,
-						LocationID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-				},
-			},
-		},
-		{
-			name: "Playlist entry in TagMap included",
-			db: &Database{
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 0,
-					},
-					{
-						TagID:   2,
-						TagType: 1,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					{
-						TagMapID:       1,
-						TagID:          1,
-						PlaylistItemID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-					nil,
-					{
-						TagMapID:   3,
-						TagID:      2,
-						LocationID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-				},
-			},
-			wantDB: &Database{
-				ContainsPlaylists: true,
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 0,
-					},
-					{
-						TagID:   2,
-						TagType: 1,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					nil,
-					nil,
-					{
-						TagMapID:   3,
-						TagID:      2,
-						LocationID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-				},
-			},
-		},
-		{
-			name: "Playlist with entries included",
-			db: &Database{
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 1,
-					},
-					{
-						TagID:   2,
-						TagType: 2,
-					},
-					{
-						TagID:   3,
-						TagType: 2,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					{
-						TagMapID:       1,
-						TagID:          2,
-						PlaylistItemID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-					{
-						TagMapID:       2,
-						TagID:          2,
-						PlaylistItemID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-					{
-						TagMapID:       3,
-						TagID:          3,
-						PlaylistItemID: sql.NullInt32{Int32: 3, Valid: true},
-					},
-					{
-						TagMapID:   4,
-						TagID:      1,
-						LocationID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-				},
-			},
-			wantDB: &Database{
-				ContainsPlaylists: true,
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 1,
-					},
-					nil,
-					nil,
-				},
-				TagMap: []*TagMap{
-					nil,
-					nil,
-					nil,
-					nil,
-					{
-						TagMapID:   4,
-						TagID:      1,
-						LocationID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.db.removePlaylists()
-			assert.Equal(t, tt.wantDB, tt.db)
-		})
-	}
-}
-
 func TestDatabase_ImportJWLBackup(t *testing.T) {
 	db := Database{}
+	defer func() { assert.NoError(t, db.Close()) }()
 
 	path := filepath.Join("testdata", "backup.jwlibrary")
 	assert.NoError(t, db.ImportJWLBackup(path))
-	t.Cleanup(func() { assert.NoError(t, db.Close()) })
 
 	// As we already test the correctness in Test_fetchFromSQLite,
 	// it should be sufficient to just double-check the size of the slices.
@@ -818,10 +569,10 @@ func TestDatabase_ExportJWLBackup(t *testing.T) {
 
 	// Test if import->export->import tweakes Data in wrong way
 	db := Database{}
+	defer func() { assert.NoError(t, db.Close()) }()
 
 	path := filepath.Join("testdata", "backup.jwlibrary")
 	assert.NoError(t, db.ImportJWLBackup(path))
-	t.Cleanup(func() { assert.NoError(t, db.Close()) })
 
 	newPath := filepath.Join(testFolder, "backup.jwlibrary")
 	assert.NoError(t, db.ExportJWLBackup(newPath))
@@ -834,7 +585,6 @@ func TestDatabase_ExportJWLBackup(t *testing.T) {
 	}
 
 	assert.NoError(t, db.ImportJWLBackup(newPath))
-	t.Cleanup(func() { assert.NoError(t, db.Close()) })
 
 	assert.Len(t, db.BlockRange, 5)
 	assert.Equal(t, &BlockRange{3, 2, 13, sql.NullInt32{Int32: 0, Valid: true}, sql.NullInt32{Int32: 14, Valid: true}, 3}, db.BlockRange[3])
@@ -925,14 +675,14 @@ func TestDatabase_saveToNewSQLite(t *testing.T) {
 
 func TestDatabase_Equals(t *testing.T) {
 	db1 := &Database{}
+	defer func() { assert.NoError(t, db1.Close()) }()
 	db2 := &Database{}
+	defer func() { assert.NoError(t, db2.Close()) }()
 
 	path := filepath.Join("testdata", "backup.jwlibrary")
 	assert.NoError(t, db1.ImportJWLBackup(path))
-	t.Cleanup(func() { assert.NoError(t, db1.Close()) })
 	assert.False(t, db1.Equals(db2))
 	assert.NoError(t, db2.ImportJWLBackup(path))
-	t.Cleanup(func() { assert.NoError(t, db2.Close()) })
 	assert.True(t, db1.Equals(db2))
 
 	db1.Location = append(db1.Location, &Location{
@@ -942,9 +692,9 @@ func TestDatabase_Equals(t *testing.T) {
 	assert.False(t, db1.Equals(db2))
 
 	db3 := &Database{}
+	defer func() { assert.NoError(t, db3.Close()) }()
 	path = filepath.Join("testdata", "backup_shuffled.jwlibrary")
 	assert.NoError(t, db3.ImportJWLBackup(path))
-	t.Cleanup(func() { assert.NoError(t, db3.Close()) })
 	assert.True(t, db2.Equals(db3))
 }
 

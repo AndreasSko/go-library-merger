@@ -52,8 +52,9 @@ var InputFieldResolver string
 // PlaylistResolver represents a resolver that should be used for conflicting playlist items
 var PlaylistResolver string
 
-// SkipPlaylists indicates if playlists should be skipped when importing and merging backups.
-var SkipPlaylists bool
+// SkipUnsupportedPlaylists leaves out the playlists of a backup if they use
+// features that cannot be merged yet, instead of stopping the merge.
+var SkipUnsupportedPlaylists bool
 
 func merge(leftFilename string, rightFilename string, mergedFilename string, stdio terminal.Stdio) (resultErr error) {
 	if PlaylistResolver != "" && PlaylistResolver != "chooseLeft" && PlaylistResolver != "chooseRight" {
@@ -61,7 +62,7 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 	}
 	fmt.Fprintln(stdio.Out, "Importing left backup")
 	left := model.Database{
-		SkipPlaylists: SkipPlaylists,
+		SkipUnsupportedPlaylists: SkipUnsupportedPlaylists,
 	}
 	err := left.ImportJWLBackup(leftFilename)
 	if err != nil {
@@ -71,7 +72,7 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 	defer func() { resultErr = errors.Join(resultErr, left.Close()) }()
 	fmt.Fprintln(stdio.Out, "Importing right backup")
 	right := model.Database{
-		SkipPlaylists: SkipPlaylists,
+		SkipUnsupportedPlaylists: SkipUnsupportedPlaylists,
 	}
 	err = right.ImportJWLBackup(rightFilename)
 	if err != nil {
@@ -443,5 +444,5 @@ func init() {
 	mergeCmd.Flags().StringVar(&NoteResolver, "notes", "", "Resolve conflicting notes with resolver (can be 'chooseNewest', 'chooseLeft', or 'chooseRight')")
 	mergeCmd.Flags().StringVar(&InputFieldResolver, "inputFields", "", "Resolve conflicting inputFields with resolver (can be 'chooseLeft', or 'chooseRight')")
 	mergeCmd.Flags().StringVar(&PlaylistResolver, "playlists", "", "Resolve conflicting playlist items with resolver (can be 'chooseLeft' or 'chooseRight')")
-	mergeCmd.Flags().BoolVar(&SkipPlaylists, "skipPlaylists", false, "Skip playlists when importing and merging backups.")
+	mergeCmd.Flags().BoolVar(&SkipUnsupportedPlaylists, "skipUnsupportedPlaylists", false, "Leave out the playlists of a backup if they use features that cannot be merged yet (like markers).")
 }

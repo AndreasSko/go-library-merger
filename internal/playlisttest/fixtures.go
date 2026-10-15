@@ -172,3 +172,52 @@ func Verify(t *testing.T, path string, want []Playlist) {
 	require.False(t, rows.Next())
 	require.NoError(t, rows.Err())
 }
+
+// Rewrite runs query on the database of a backup and keeps its manifest
+// valid. mutate can change the files of the backup before it is written.
+func Rewrite(t *testing.T, input, query string, mutate func(map[string][]byte)) string {
+	t.Helper()
+	z, err := zip.OpenReader(input)
+	require.NoError(t, err)
+	blobs := map[string][]byte{}
+	for _, f := range z.File {
+		r, e := f.Open()
+		require.NoError(t, e)
+		blobs[f.Name], e = io.ReadAll(r)
+		require.NoError(t, e)
+		require.NoError(t, r.Close())
+	}
+	require.NoError(t, z.Close())
+	dbpath := filepath.Join(t.TempDir(), "userData.db")
+	require.NoError(t, os.WriteFile(dbpath, blobs["userData.db"], 0600))
+	c, e := sql.Open("sqlite3", dbpath)
+	require.NoError(t, e)
+	if query != "" {
+		_, e = c.Exec(query)
+		require.NoError(t, e)
+	}
+	require.NoError(t, c.Close())
+	blobs["userData.db"], e = os.ReadFile(dbpath)
+	require.NoError(t, e)
+	var manifest map[string]interface{}
+	require.NoError(t, json.Unmarshal(blobs["manifest.json"], &manifest))
+	manifest["userDataBackup"].(map[string]interface{})["hash"] = fmt.Sprintf("%x", sha256.Sum256(blobs["userData.db"]))
+	blobs["manifest.json"], e = json.Marshal(manifest)
+	require.NoError(t, e)
+	if mutate != nil {
+		mutate(blobs)
+	}
+	out := filepath.Join(t.TempDir(), "negative.jwlibrary")
+	f, e := os.Create(out)
+	require.NoError(t, e)
+	w := zip.NewWriter(f)
+	for name, data := range blobs {
+		entry, e := w.Create(name)
+		require.NoError(t, e)
+		_, e = entry.Write(data)
+		require.NoError(t, e)
+	}
+	require.NoError(t, w.Close())
+	require.NoError(t, f.Close())
+	return out
+}

@@ -27,13 +27,11 @@ func (db *Database) removePlaylists() {
 	for i, tag := range db.Tag {
 		if tag != nil && tag.TagType == 2 {
 			db.Tag[i] = nil
-			db.ContainsPlaylists = true
 		}
 	}
 	for i, tm := range db.TagMap {
 		if tm != nil && tm.PlaylistItemID.Valid {
 			db.TagMap[i] = nil
-			db.ContainsPlaylists = true
 		}
 	}
 	db.PlaylistItem = nil

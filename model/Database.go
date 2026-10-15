@@ -53,10 +53,12 @@ type Database struct {
 	TagMap                          []*TagMap
 	UserMark                        []*UserMark
 
-	// ContainsPlaylists indicates if the imported backup contains playlists.
-	ContainsPlaylists bool
-	// SkipPlaylists excludes playlist data when importing a backup.
-	SkipPlaylists bool
+	// SkipUnsupportedPlaylists allows importing a backup whose playlists use
+	// features that cannot be merged yet. Its playlists are left out instead.
+	SkipUnsupportedPlaylists bool
+	// ContainsUnsupportedPlaylists indicates that the playlists of the
+	// imported backup were left out because of SkipUnsupportedPlaylists.
+	ContainsUnsupportedPlaylists bool
 	// TempDir is used for temporary files. If not set, os.TempDir() will be used.
 	TempDir string
 	// WorkingDir holds the files of the imported backup or the merged media.
@@ -205,7 +207,7 @@ func (db *Database) Equals(other *Database) bool {
 	otherFields := reflect.ValueOf(otherCp).Elem()
 	for i := 0; i < dbFields.NumField(); i++ {
 		name := dbFields.Type().Field(i).Name
-		if !dbFields.Field(i).CanInterface() || name == "TempDir" || name == "WorkingDir" || name == "SkipPlaylists" || name == "ContainsPlaylists" {
+		if !dbFields.Field(i).CanInterface() || name == "TempDir" || name == "WorkingDir" || name == "SkipUnsupportedPlaylists" || name == "ContainsUnsupportedPlaylists" {
 			continue
 		}
 		dbField := dbFields.Field(i)
@@ -305,7 +307,7 @@ func (db *Database) Close() error {
 // included SQLite DB to the Database struct
 func (db *Database) ImportJWLBackup(filename string) error {
 	// Import into a new Database, so a failed import keeps the previous one.
-	imported := &Database{TempDir: db.TempDir, SkipPlaylists: db.SkipPlaylists}
+	imported := &Database{TempDir: db.TempDir, SkipUnsupportedPlaylists: db.SkipUnsupportedPlaylists}
 	if err := imported.importJWLBackup(filename); err != nil {
 		return stdErrors.Join(err, imported.Close())
 	}
@@ -454,62 +456,59 @@ func (db *Database) importSQLite(filename string) error {
 		db.UserMark = UserMark{}.MakeSlice(mdl)
 		return nil
 	})
-	if !db.SkipPlaylists {
-		group.Go(func() error {
-			mdl, err := fetchFromSQLite(sqlite, &IndependentMedia{})
-			if err != nil {
-				return err
-			}
-			db.IndependentMedia = IndependentMedia{}.MakeSlice(mdl)
-			return nil
-		})
-		group.Go(func() error {
-			mdl, err := fetchFromSQLite(sqlite, &PlaylistItem{})
-			if err != nil {
-				return err
-			}
-			db.PlaylistItem = PlaylistItem{}.MakeSlice(mdl)
-			return nil
-		})
-		group.Go(func() error {
-			mdl, err := fetchFromSQLite(sqlite, &PlaylistItemIndependentMediaMap{})
-			if err != nil {
-				return err
-			}
-			db.PlaylistItemIndependentMediaMap = PlaylistItemIndependentMediaMap{}.MakeSlice(mdl)
-			return nil
-		})
-		group.Go(func() error {
-			mdl, err := fetchFromSQLite(sqlite, &PlaylistItemLocationMap{})
-			if err != nil {
-				return err
-			}
-			db.PlaylistItemLocationMap = PlaylistItemLocationMap{}.MakeSlice(mdl)
-			return nil
-		})
-	}
+	group.Go(func() error {
+		mdl, err := fetchFromSQLite(sqlite, &IndependentMedia{})
+		if err != nil {
+			return err
+		}
+		db.IndependentMedia = IndependentMedia{}.MakeSlice(mdl)
+		return nil
+	})
+	group.Go(func() error {
+		mdl, err := fetchFromSQLite(sqlite, &PlaylistItem{})
+		if err != nil {
+			return err
+		}
+		db.PlaylistItem = PlaylistItem{}.MakeSlice(mdl)
+		return nil
+	})
+	group.Go(func() error {
+		mdl, err := fetchFromSQLite(sqlite, &PlaylistItemIndependentMediaMap{})
+		if err != nil {
+			return err
+		}
+		db.PlaylistItemIndependentMediaMap = PlaylistItemIndependentMediaMap{}.MakeSlice(mdl)
+		return nil
+	})
+	group.Go(func() error {
+		mdl, err := fetchFromSQLite(sqlite, &PlaylistItemLocationMap{})
+		if err != nil {
+			return err
+		}
+		db.PlaylistItemLocationMap = PlaylistItemLocationMap{}.MakeSlice(mdl)
+		return nil
+	})
 	if err := group.Wait(); err != nil {
 		return err
 	}
 
-	for _, tag := range db.Tag {
-		if tag != nil && tag.TagType == 2 {
-			db.ContainsPlaylists = true
-		}
-	}
-	if db.SkipPlaylists {
-		db.removePlaylists()
-		return nil
-	}
-	// These tables encode clips/markers that this merger cannot yet preserve.
+	// We have not seen markers in real backups yet, so we do not know how to
+	// merge them. Rather than risk breaking the playlists, they are left out
+	// only if the caller allows it.
 	for _, table := range []string{"PlaylistItemMarker", "PlaylistItemMarkerBibleVerseMap", "PlaylistItemMarkerParagraphMap"} {
 		count, err := getTableEntryCount(sqlite, table)
 		if err != nil {
 			return err
 		}
-		if count > 0 {
-			return fmt.Errorf("merging of playlists is not supported yet for table %s; use SkipPlaylists to omit playlists", table)
+		if count == 0 {
+			continue
 		}
+		if !db.SkipUnsupportedPlaylists {
+			return fmt.Errorf("merging of playlists is not supported yet for table %s; use SkipUnsupportedPlaylists to leave out the playlists of this backup", table)
+		}
+		db.ContainsUnsupportedPlaylists = true
+		db.removePlaylists()
+		break
 	}
 
 	return nil

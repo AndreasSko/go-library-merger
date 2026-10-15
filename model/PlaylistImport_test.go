@@ -2,9 +2,7 @@ package model_test
 
 import (
 	"archive/zip"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -43,64 +41,14 @@ func TestPlaylistCopyAndEquality(t *testing.T) {
 	require.NotEqual(t, a.PlaylistItem[1].Label, cp.PlaylistItem[1].Label)
 }
 
-func TestSkipPlaylists(t *testing.T) {
+func TestSkipUnsupportedPlaylistsKeepsSupportedOnes(t *testing.T) {
 	p := playlisttest.Build(t, playlisttest.Cases()[0].Left)
-	db := &model.Database{SkipPlaylists: true, TempDir: t.TempDir()}
+	db := &model.Database{SkipUnsupportedPlaylists: true, TempDir: t.TempDir()}
 	require.NoError(t, db.ImportJWLBackup(p))
-	require.True(t, db.ContainsPlaylists)
-	require.Empty(t, db.PlaylistItem)
-	require.Empty(t, db.IndependentMedia)
-	require.NotEmpty(t, db.WorkingDir)
+	require.False(t, db.ContainsUnsupportedPlaylists)
+	require.NotEmpty(t, db.PlaylistItem)
+	require.NotEmpty(t, db.IndependentMedia)
 	require.NoError(t, db.Close())
-}
-
-// rewritePlaylistArchive changes synthetic input and keeps the manifest valid,
-// so rejection must come from the relationship/payload contract under test.
-func rewritePlaylistArchive(t *testing.T, input, query string, mutate func(map[string][]byte)) string {
-	t.Helper()
-	z, err := zip.OpenReader(input)
-	require.NoError(t, err)
-	blobs := map[string][]byte{}
-	for _, f := range z.File {
-		r, e := f.Open()
-		require.NoError(t, e)
-		blobs[f.Name], e = io.ReadAll(r)
-		require.NoError(t, e)
-		require.NoError(t, r.Close())
-	}
-	require.NoError(t, z.Close())
-	dbpath := filepath.Join(t.TempDir(), "userData.db")
-	require.NoError(t, os.WriteFile(dbpath, blobs["userData.db"], 0600))
-	c, e := sql.Open("sqlite3", dbpath)
-	require.NoError(t, e)
-	if query != "" {
-		_, e = c.Exec(query)
-		require.NoError(t, e)
-	}
-	require.NoError(t, c.Close())
-	blobs["userData.db"], e = os.ReadFile(dbpath)
-	require.NoError(t, e)
-	var manifest map[string]interface{}
-	require.NoError(t, json.Unmarshal(blobs["manifest.json"], &manifest))
-	manifest["userDataBackup"].(map[string]interface{})["hash"] = fmt.Sprintf("%x", sha256.Sum256(blobs["userData.db"]))
-	blobs["manifest.json"], e = json.Marshal(manifest)
-	require.NoError(t, e)
-	if mutate != nil {
-		mutate(blobs)
-	}
-	out := filepath.Join(t.TempDir(), "negative.jwlibrary")
-	f, e := os.Create(out)
-	require.NoError(t, e)
-	w := zip.NewWriter(f)
-	for name, data := range blobs {
-		entry, e := w.Create(name)
-		require.NoError(t, e)
-		_, e = entry.Write(data)
-		require.NoError(t, e)
-	}
-	require.NoError(t, w.Close())
-	require.NoError(t, f.Close())
-	return out
 }
 
 func TestPlaylistUnsupportedTablesRejectIndependently(t *testing.T) {
@@ -113,19 +61,19 @@ func TestPlaylistUnsupportedTablesRejectIndependently(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.table, func(t *testing.T) {
-			p := rewritePlaylistArchive(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Portable", Items: []string{"A"}}}), tc.query, nil)
+			p := playlisttest.Rewrite(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Portable", Items: []string{"A"}}}), tc.query, nil)
 			db := &model.Database{TempDir: t.TempDir()}
 			require.ErrorContains(t, db.ImportJWLBackup(p), "not supported yet for table "+tc.table)
-			omitted := &model.Database{TempDir: t.TempDir(), SkipPlaylists: true}
+			omitted := &model.Database{TempDir: t.TempDir(), SkipUnsupportedPlaylists: true}
 			require.NoError(t, omitted.ImportJWLBackup(p))
-			require.True(t, omitted.ContainsPlaylists)
+			require.True(t, omitted.ContainsUnsupportedPlaylists)
 			require.Empty(t, omitted.PlaylistItem)
 			require.Empty(t, omitted.IndependentMedia)
 			exported := filepath.Join(t.TempDir(), "omitted.jwlibrary")
 			require.NoError(t, omitted.ExportJWLBackup(exported))
 			reread := &model.Database{TempDir: t.TempDir()}
 			require.NoError(t, reread.ImportJWLBackup(exported))
-			require.False(t, reread.ContainsPlaylists)
+			require.False(t, reread.ContainsUnsupportedPlaylists)
 		})
 	}
 }
@@ -144,7 +92,7 @@ func TestPlaylistMalformedRelationshipsReject(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			p := rewritePlaylistArchive(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Portable", Items: []string{"A", "B"}}}), tc.query, nil)
+			p := playlisttest.Rewrite(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Portable", Items: []string{"A", "B"}}}), tc.query, nil)
 			db := &model.Database{TempDir: t.TempDir()}
 			require.ErrorContains(t, db.ImportJWLBackup(p), tc.want)
 		})
@@ -154,7 +102,7 @@ func TestPlaylistMalformedRelationshipsReject(t *testing.T) {
 func TestPlaylistInvalidPayloadsReject(t *testing.T) {
 	for _, kind := range []string{"missing", "corrupt"} {
 		t.Run(kind, func(t *testing.T) {
-			p := rewritePlaylistArchive(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Portable", Items: []string{"photo"}}}), "", func(blobs map[string][]byte) {
+			p := playlisttest.Rewrite(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Portable", Items: []string{"photo"}}}), "", func(blobs map[string][]byte) {
 				if kind == "missing" {
 					delete(blobs, "photo.bin")
 				} else {
@@ -167,7 +115,7 @@ func TestPlaylistInvalidPayloadsReject(t *testing.T) {
 	}
 	for _, path := range []string{"../outside.bin", "/outside.bin", "nested/file.bin", ".", ".."} {
 		t.Run(fmt.Sprintf("path=%q", path), func(t *testing.T) {
-			p := rewritePlaylistArchive(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Portable", Items: []string{"photo"}}}), "UPDATE IndependentMedia SET FilePath='"+path+"' WHERE FilePath='photo.bin'", nil)
+			p := playlisttest.Rewrite(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Portable", Items: []string{"photo"}}}), "UPDATE IndependentMedia SET FilePath='"+path+"' WHERE FilePath='photo.bin'", nil)
 			db := &model.Database{TempDir: t.TempDir()}
 			require.ErrorContains(t, db.ImportJWLBackup(p), "invalid independent media path")
 		})

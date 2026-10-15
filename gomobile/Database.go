@@ -17,9 +17,7 @@ type DatabaseWrapper struct {
 	right  *model.Database
 	merged *model.Database
 
-	// skipPlaylists allows to skip prevention of merging if playlists exist in the database.
-	// It is meant as a temporary workaround until merging of playlists is implemented.
-	skipPlaylists bool
+	skipUnsupportedPlaylists bool
 
 	// Temporary databases allow to run a merge function multiple
 	// times without changing the content of the original databases.
@@ -43,7 +41,7 @@ func (dbw *DatabaseWrapper) ImportJWLBackup(filename string, side string) error 
 	if imported == nil {
 		imported = &model.Database{}
 	}
-	imported.TempDir, imported.SkipPlaylists = dbw.TempDir, dbw.skipPlaylists
+	imported.TempDir, imported.SkipUnsupportedPlaylists = dbw.TempDir, dbw.skipUnsupportedPlaylists
 	if err := imported.ImportJWLBackup(filename); err != nil {
 		return err
 	}
@@ -51,10 +49,11 @@ func (dbw *DatabaseWrapper) ImportJWLBackup(filename string, side string) error 
 	return nil
 }
 
-// SkipPlaylists allows to skip the check if playlists exist in the database.
-// It is meant as a temporary workaround until merging of playlists is implemented.
-func (dbw *DatabaseWrapper) SkipPlaylists(skipPlaylists bool) {
-	dbw.skipPlaylists = skipPlaylists
+// SkipUnsupportedPlaylists allows importing backups whose playlists use
+// features that cannot be merged yet. Their playlists are left out instead,
+// which DBContainsUnsupportedPlaylists reports.
+func (dbw *DatabaseWrapper) SkipUnsupportedPlaylists(skip bool) {
+	dbw.skipUnsupportedPlaylists = skip
 }
 
 // Init initializes the DatabaseWrapper to prepare for subsequent
@@ -89,17 +88,18 @@ func (dbw *DatabaseWrapper) DBIsLoaded(side string) bool {
 	return false
 }
 
-// DBContainsPlaylists indicates if a DB on the given side contains playlists.
-func (dbw *DatabaseWrapper) DBContainsPlaylists(side string) bool {
+// DBContainsUnsupportedPlaylists indicates if the playlists of the DB on the
+// given side were left out, because they cannot be merged yet.
+func (dbw *DatabaseWrapper) DBContainsUnsupportedPlaylists(side string) bool {
 	if !dbw.DBIsLoaded(side) {
 		return false
 	}
 
 	switch side {
 	case "leftSide":
-		return dbw.left.ContainsPlaylists
+		return dbw.left.ContainsUnsupportedPlaylists
 	case "rightSide":
-		return dbw.right.ContainsPlaylists
+		return dbw.right.ContainsUnsupportedPlaylists
 	}
 
 	return false

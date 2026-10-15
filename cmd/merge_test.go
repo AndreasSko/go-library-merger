@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/AlecAivazis/survey/v2/terminal"
+	"github.com/AndreasSko/go-library-merger/internal/playlisttest"
 	"github.com/AndreasSko/go-library-merger/model"
 	expect "github.com/Netflix/go-expect"
 	"github.com/stretchr/testify/assert"
@@ -233,32 +234,31 @@ func Test_merge(t *testing.T) {
 			assert.True(t, mergedAllLeftDBEmptyBR.Equals(merged))
 		})
 
-	// Attempt to merge with playlists, while skipPlaylists is set to false
+	withMarker := playlisttest.Rewrite(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Markers", Items: []string{"A"}}}),
+		"INSERT INTO PlaylistItemMarker VALUES(1,1,'clip',0,100,0)", nil)
+
+	// Attempt to merge unsupported playlists, while skipUnsupportedPlaylists is false
 	RunCmdTest(t,
 		func(t *testing.T, c *expect.Console) {
 			_, err := c.ExpectEOF()
 			require.NoError(t, err)
 		},
 		func(t *testing.T, c *expect.Console) {
-			require.Error(t, merge("../model/testdata/backup_withPlaylist.jwlibrary",
-				"../model/testdata/backup_withPlaylist.jwlibrary",
-				mergedFilename,
+			require.Error(t, merge(withMarker, withMarker, mergedFilename,
 				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 		},
 	)
 
-	// Merge with playlists and skipPlaylists set to true
+	// Merge unsupported playlists with skipUnsupportedPlaylists set to true
 	RunCmdTest(t,
 		func(t *testing.T, c *expect.Console) {
 			c.ExpectString("🎉 Finished merging!")
 			c.ExpectEOF()
 		},
 		func(t *testing.T, c *expect.Console) {
-			SkipPlaylists = true
-			defer func() { SkipPlaylists = false }()
-			require.NoError(t, merge("../model/testdata/backup_withPlaylist.jwlibrary",
-				"../model/testdata/backup_withPlaylist.jwlibrary",
-				mergedFilename,
+			SkipUnsupportedPlaylists = true
+			defer func() { SkipUnsupportedPlaylists = false }()
+			require.NoError(t, merge(withMarker, withMarker, mergedFilename,
 				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 		},
 	)

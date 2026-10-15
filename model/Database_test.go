@@ -520,20 +520,6 @@ func TestDatabase_importSQLite(t *testing.T) {
 			wantErr:    assert.NoError,
 			assertions: func(t *testing.T, db *Database) {},
 		},
-		{
-			name: "Playlists included, skip them!",
-			db: &Database{
-				SkipPlaylists: true,
-			},
-			filename: filepath.Join("testdata", "userData_withPlaylist.db"),
-			wantErr:  assert.NoError,
-			assertions: func(t *testing.T, db *Database) {
-				assert.Nil(t, db.Tag[3])
-				assert.NotNil(t, db.Tag[4])
-				assert.Nil(t, db.TagMap[3])
-				assert.Nil(t, db.TagMap[4])
-			},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

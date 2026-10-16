@@ -17,6 +17,7 @@ import (
 
 	"github.com/AndreasSko/go-library-merger/publication"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDownloadCatalog(t *testing.T) {
@@ -33,41 +34,44 @@ func TestDownloadCatalog(t *testing.T) {
 	}))
 	defer server.Close()
 
+	oldManifest, oldCatalog := publication.ManifestURL, publication.CatalogURL
+	t.Cleanup(func() { publication.ManifestURL, publication.CatalogURL = oldManifest, oldCatalog })
 	publication.ManifestURL = server.URL + "/catalogs/publications/v4/manifest.json"
 	publication.CatalogURL = server.URL + "/catalogs/publications/v4/%s/catalog.db.gz"
 
 	for range []int{0, 1} {
 		dm := DownloadCatalog(filepath.Join(tmp, "catalog.db"))
-		for {
-			assert.NoError(t, dm.err)
-			if dm.Progress.Done == true {
-				break
-			}
-		}
+		require.Eventually(t, func() bool { return dm.GetProgress().Done }, 5*time.Second, time.Millisecond)
+		assert.Empty(t, dm.Error())
 		assert.Equal(t, "7ebe98db8b5edd1ab901b7d6b43647fd35790b2a332c43739efdf9383d590651",
 			hashFile(filepath.Join(tmp, "catalog.db")))
 		assert.True(t, dm.DownloadSuccessful())
 	}
 
 	// Test error
-	publication.CatalogURL = "https://notvaliddomain.com/%s"
+	publication.CatalogURL = server.URL + "/%s"
+	publication.ManifestURL = ":invalid-url"
 	dm := DownloadCatalog(filepath.Join(tmp, "catalog.db"))
-	time.Sleep(5 * time.Second)
-	assert.Error(t, dm.err)
+	require.Eventually(t, func() bool { return dm.GetProgress().Done }, 5*time.Second, time.Millisecond)
 	assert.NotEqual(t, "", dm.Error())
-	assert.True(t, dm.Progress.Done)
+	assert.True(t, dm.GetProgress().Done)
 	assert.False(t, dm.DownloadSuccessful())
 }
 
 func TestDownloadManager_CancelDownload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer server.Close()
+	oldManifest := publication.ManifestURL
+	publication.ManifestURL = server.URL
+	t.Cleanup(func() { publication.ManifestURL = oldManifest })
 	tmp := t.TempDir()
 
 	dm := DownloadCatalog(filepath.Join(tmp, "catalog.db"))
 	dm.CancelDownload()
-	time.Sleep(time.Second)
-	assert.True(t, dm.Progress.Done)
+	require.Eventually(t, func() bool { return dm.GetProgress().Done }, 5*time.Second, time.Millisecond)
+	assert.True(t, dm.GetProgress().Done)
 	assert.NotEqual(t, "", dm.Error())
-	assert.True(t, dm.Progress.Canceled)
+	assert.True(t, dm.GetProgress().Canceled)
 	assert.False(t, dm.DownloadSuccessful())
 	assert.False(t, publication.CatalogExists(filepath.Join(tmp, "catalog.db")))
 }

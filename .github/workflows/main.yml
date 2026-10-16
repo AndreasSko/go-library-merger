@@ -1,15 +1,60 @@
 name: CI
-on: [push]
+on: [push, pull_request]
 jobs:
   golangci-lint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@v3
+      - name: Check out code and lint baseline history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Select lint baseline for this event
+        id: lint-baseline
+        shell: bash
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          revision=""
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            revision="$PR_BASE"
+          elif [[ -n "$PUSH_BEFORE" && "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]]; then
+            revision="$PUSH_BEFORE"
+          elif git rev-parse --verify "origin/$DEFAULT_BRANCH" >/dev/null 2>&1; then
+            revision=$(git merge-base HEAD "origin/$DEFAULT_BRANCH")
+            if [[ "$revision" == "$(git rev-parse HEAD)" ]]; then
+              revision=$(git rev-parse --verify HEAD^ 2>/dev/null || true)
+            fi
+          fi
+          if [[ -n "$revision" ]]; then
+            # A force push may leave the previous tip outside fetched history.
+            if ! git cat-file -e "$revision^{commit}"; then
+              git fetch --no-tags origin "$revision"
+            fi
+            printf 'flags=--new-from-rev=%s\n' "$revision" >> "$GITHUB_OUTPUT"
+          else
+            # An initial repository push has no earlier baseline; lint it all.
+            printf 'flags=\n' >> "$GITHUB_OUTPUT"
+          fi
       - name: golangci-lint
         uses: reviewdog/action-golangci-lint@v2
         with:
-          github_token: ${{ secrets.github_token }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          go_version: '1.27.1'
+          golangci_lint_version: v2.14.0
+          reviewdog_version: v0.21.0
+          # Compare PRs with their base, and pushes with the previous tip rather
+          # than origin/master, which already equals HEAD on a master push.
+          golangci_lint_flags: ${{ steps.lint-baseline.outputs.flags }}
+          # Stdout annotations also work with read-only fork PR tokens.
+          reporter: github-annotations
+          filter_mode: nofilter
+          fail_level: error
   test:
     strategy:
       matrix:
@@ -18,28 +63,61 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.27.1'
       - name: Checkout code
-        uses: actions/checkout@v3
-      - name: Run tests
-        run: go test ./...
+        uses: actions/checkout@v4
+      - name: Run portable regression suite
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./... -count=1 -json | tee test-results.json
+      - name: Retain test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-tests-${{ matrix.os }}
+          path: test-results.json
     
   gomobile-ios:
     runs-on: macos-latest
     steps:
       - name: Install Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
-      - name: Install Gomobile
-        run: go install golang.org/x/mobile/cmd/gomobile@latest
+          go-version: '1.27.1'
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+      - name: Install pinned Gomobile tools
+        run: |
+          mobile_version=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install golang.org/x/mobile/cmd/gomobile@"$mobile_version"
+          go install golang.org/x/mobile/cmd/gobind@"$mobile_version"
       - name: Initialize Gomobile
         run: gomobile init
         working-directory: gomobile
       - name: Build for iOS
         run: gomobile bind -target ios -v
         working-directory: gomobile
+
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+      - name: Race and cross-package coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./... -race -count=1 -coverpkg=./... -covermode=atomic -coverprofile=coverage.out -json | tee race-results.json
+      - name: Retain race evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-race-coverage
+          path: |
+            race-results.json
+            coverage.out

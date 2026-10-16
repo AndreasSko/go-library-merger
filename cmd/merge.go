@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/AlecAivazis/survey/v2/terminal"
@@ -12,8 +14,6 @@ import (
 	"github.com/buger/goterm"
 	"github.com/jedib0t/go-pretty/table"
 	"github.com/spf13/cobra"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // mergeCmd represents the merge command
@@ -49,33 +49,42 @@ var NoteResolver string
 // InputFieldResolver represents a resolver that should be used for conflicting InputFields
 var InputFieldResolver string
 
-// SkipPlaylists indicates if playlists should be skipped when importing backups.
-// It is meant as a temporary workaround until merging of playlists is implemented.
-var SkipPlaylists bool
+// PlaylistResolver represents a resolver that should be used for conflicting playlist items
+var PlaylistResolver string
 
-func merge(leftFilename string, rightFilename string, mergedFilename string, stdio terminal.Stdio) error {
+// SkipUnsupportedPlaylists leaves out the playlists of a backup if they use
+// features that cannot be merged yet, instead of stopping the merge.
+var SkipUnsupportedPlaylists bool
+
+func merge(leftFilename string, rightFilename string, mergedFilename string, stdio terminal.Stdio) (resultErr error) {
+	if PlaylistResolver != "" && PlaylistResolver != "chooseLeft" && PlaylistResolver != "chooseRight" {
+		return fmt.Errorf("playlist resolver must be chooseLeft or chooseRight, got %q", PlaylistResolver)
+	}
 	fmt.Fprintln(stdio.Out, "Importing left backup")
 	left := model.Database{
-		SkipPlaylists: SkipPlaylists,
+		SkipUnsupportedPlaylists: SkipUnsupportedPlaylists,
 	}
 	err := left.ImportJWLBackup(leftFilename)
 	if err != nil {
 		return fmt.Errorf("failed to import left backup: %w", err)
 	}
 
+	defer func() { resultErr = errors.Join(resultErr, left.Close()) }()
 	fmt.Fprintln(stdio.Out, "Importing right backup")
 	right := model.Database{
-		SkipPlaylists: SkipPlaylists,
+		SkipUnsupportedPlaylists: SkipUnsupportedPlaylists,
 	}
 	err = right.ImportJWLBackup(rightFilename)
 	if err != nil {
 		return fmt.Errorf("failed to import right backup: %w", err)
 	}
 
+	defer func() { resultErr = errors.Join(resultErr, right.Close()) }()
 	fmt.Fprintln(stdio.Out, "⌛ Preparing Databases")
 	merger.PrepareDatabasesPreMerge(&left, &right)
 
 	merged := model.Database{}
+	defer func() { resultErr = errors.Join(resultErr, merged.Close()) }()
 
 	fmt.Fprintln(stdio.Out, "🧭 Merging Locations")
 	mergedLocations, locationIDChanges, err := merger.MergeLocations(left.Location, right.Location)
@@ -89,6 +98,7 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 	merger.UpdateLRIDs(left.Note, right.Note, "LocationID", locationIDChanges)
 	merger.UpdateLRIDs(left.TagMap, right.TagMap, "LocationID", locationIDChanges)
 	merger.UpdateLRIDs(left.UserMark, right.UserMark, "LocationID", locationIDChanges)
+	merger.UpdateLRIDs(left.PlaylistItemLocationMap, right.PlaylistItemLocationMap, "LocationID", locationIDChanges)
 	fmt.Fprintln(stdio.Out, "Done.")
 
 	fmt.Fprintln(stdio.Out, "📑 Merging Bookmarks")
@@ -105,11 +115,14 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 				var resErr error
 				newSolutions, resErr := merger.AutoResolveConflicts(err.Conflicts, BookmarkResolver)
 				if resErr != nil {
-					log.Fatal(resErr)
+					return resErr
 				}
 				addToSolutions(bookmarksConflictSolution, newSolutions)
 			} else {
-				newSolutions := handleMergeConflict(err.Conflicts, &merged, stdio)
+				newSolutions, selectionErr := handleMergeConflict(err.Conflicts, &merged, stdio)
+				if selectionErr != nil {
+					return selectionErr
+				}
 				addToSolutions(bookmarksConflictSolution, newSolutions)
 			}
 		default:
@@ -132,11 +145,14 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 				var resErr error
 				newSolutions, resErr := merger.AutoResolveConflicts(err.Conflicts, InputFieldResolver)
 				if resErr != nil {
-					log.Fatal(resErr)
+					return resErr
 				}
 				addToSolutions(inputFieldConflictSolution, newSolutions)
 			} else {
-				newSolutions := handleMergeConflict(err.Conflicts, &merged, stdio)
+				newSolutions, selectionErr := handleMergeConflict(err.Conflicts, &merged, stdio)
+				if selectionErr != nil {
+					return selectionErr
+				}
 				addToSolutions(inputFieldConflictSolution, newSolutions)
 			}
 		default:
@@ -156,7 +172,11 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 		}
 		switch err := err.(type) {
 		case merger.MergeConflictError:
-			tagsConflictSolution = handleMergeConflict(err.Conflicts, nil, stdio) // TODO
+			resolved, selectionErr := handleMergeConflict(err.Conflicts, nil, stdio)
+			if selectionErr != nil {
+				return selectionErr
+			}
+			tagsConflictSolution = resolved
 		default:
 			return fmt.Errorf("failed to merge tags: %w", err)
 		}
@@ -179,11 +199,14 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 				var resErr error
 				newSolutions, resErr := merger.AutoResolveConflicts(err.Conflicts, MarkingResolver)
 				if resErr != nil {
-					log.Fatal(resErr)
+					return resErr
 				}
 				addToSolutions(UMBRConflictSolution, newSolutions)
 			} else {
-				newSolutions := handleMergeConflict(err.Conflicts, &merged, stdio)
+				newSolutions, selectionErr := handleMergeConflict(err.Conflicts, &merged, stdio)
+				if selectionErr != nil {
+					return selectionErr
+				}
 				addToSolutions(UMBRConflictSolution, newSolutions)
 			}
 		default:
@@ -207,11 +230,14 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 				var resErr error
 				newSolutions, resErr := merger.AutoResolveConflicts(err.Conflicts, NoteResolver)
 				if resErr != nil {
-					log.Fatal(resErr)
+					return resErr
 				}
 				addToSolutions(notesConflictSolution, newSolutions)
 			} else {
-				newSolutions := handleMergeConflict(err.Conflicts, &merged, stdio)
+				newSolutions, selectionErr := handleMergeConflict(err.Conflicts, &merged, stdio)
+				if selectionErr != nil {
+					return selectionErr
+				}
 				addToSolutions(notesConflictSolution, newSolutions)
 			}
 		default:
@@ -219,6 +245,37 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 		}
 	}
 	fmt.Fprintln(stdio.Out, "Done.")
+
+	if _, err := fmt.Fprintln(stdio.Out, "🎵 Merging Playlists"); err != nil {
+		return err
+	}
+	playlistSolutions := map[string]merger.MergeSolution{}
+	for {
+		err := merger.MergePlaylists(&left, &right, &merged, playlistSolutions)
+		if err == nil {
+			break
+		}
+		if conflict, ok := err.(merger.MergeConflictError); ok {
+			if PlaylistResolver == "" {
+				resolved, selectionErr := handleMergeConflict(conflict.Conflicts, &merged, stdio)
+				if selectionErr != nil {
+					return selectionErr
+				}
+				addToSolutions(playlistSolutions, resolved)
+			} else {
+				resolved, err := merger.AutoResolveConflicts(conflict.Conflicts, PlaylistResolver)
+				if err != nil {
+					return fmt.Errorf("failed to resolve playlist settings: %w", err)
+				}
+				addToSolutions(playlistSolutions, resolved)
+			}
+		} else {
+			return fmt.Errorf("failed to merge playlists: %w", err)
+		}
+	}
+	if _, err := fmt.Fprintln(stdio.Out, "Done."); err != nil {
+		return err
+	}
 
 	fmt.Fprintln(stdio.Out, "🏷  Merging TagMaps")
 	var tagMapsConflictSolution map[string]merger.MergeSolution
@@ -230,7 +287,11 @@ func merge(leftFilename string, rightFilename string, mergedFilename string, std
 		}
 		switch err := err.(type) {
 		case merger.MergeConflictError:
-			tagMapsConflictSolution = handleMergeConflict(err.Conflicts, nil, stdio)
+			resolved, selectionErr := handleMergeConflict(err.Conflicts, nil, stdio)
+			if selectionErr != nil {
+				return selectionErr
+			}
+			tagMapsConflictSolution = resolved
 		default:
 			return fmt.Errorf("failed to merge tagMaps: %w", err)
 		}
@@ -259,7 +320,7 @@ func addToSolutions(solutions map[string]merger.MergeSolution, new map[string]me
 	}
 }
 
-func handleMergeConflict(conflicts map[string]merger.MergeConflict, mergedDB *model.Database, stdio terminal.Stdio) map[string]merger.MergeSolution {
+func handleMergeConflict(conflicts map[string]merger.MergeConflict, mergedDB *model.Database, stdio terminal.Stdio) (map[string]merger.MergeSolution, error) {
 	helpText := ""
 	for _, val := range conflicts {
 		helpText = mergeConflictHelp(reflect.TypeOf(val.Left).String())
@@ -274,6 +335,11 @@ func handleMergeConflict(conflicts map[string]merger.MergeConflict, mergedDB *mo
 
 	result := make(map[string]merger.MergeSolution, len(conflicts))
 	for key, conflict := range conflicts {
+		if context := playlistConflictContext(conflict, mergedDB); context != "" {
+			if _, err := fmt.Fprintln(stdio.Out, context); err != nil {
+				return nil, err
+			}
+		}
 		t := table.NewWriter()
 		t.SetStyle(table.StyleRounded)
 		t.Style().Options = table.Options{
@@ -284,25 +350,25 @@ func handleMergeConflict(conflicts map[string]merger.MergeConflict, mergedDB *mo
 			SeparateRows:    true,
 		}
 
-		t.SetOutputMirror(os.Stdout)
+		t.SetOutputMirror(stdio.Out)
+		leftText, rightText := playlistConflictText(conflict, mergedDB)
 		if goterm.Width() >= 190 {
 			t.AppendHeader(table.Row{"Left", "Right"})
-			t.AppendRow([]interface{}{conflict.Left.PrettyPrint(mergedDB), conflict.Right.PrettyPrint(mergedDB)})
+			t.AppendRow([]interface{}{leftText, rightText})
 		} else {
-			t.AppendRows([]table.Row{{"Left"}, {conflict.Left.PrettyPrint(mergedDB)}, {"Right"}, {conflict.Right.PrettyPrint(mergedDB)}})
+			t.AppendRows([]table.Row{{"Left"}, {leftText}, {"Right"}, {rightText}})
 		}
 
 		t.Render()
 
-		fmt.Fprint(stdio.Out, "\n\n")
+		if _, err := fmt.Fprint(stdio.Out, "\n\n"); err != nil {
+			return nil, err
+		}
 
 		var selected string
 		err := survey.AskOne(prompt, &selected, survey.WithStdio(stdio.In, stdio.Out, stdio.Err))
-		if err == terminal.InterruptErr {
-			fmt.Fprintln(stdio.Out, "interrupted")
-			os.Exit(0)
-		} else if err != nil {
-			panic(err)
+		if err != nil {
+			return nil, fmt.Errorf("conflict selection canceled or unavailable: %w", err)
 		}
 
 		if selected == "Left" {
@@ -320,7 +386,55 @@ func handleMergeConflict(conflicts map[string]merger.MergeConflict, mergedDB *mo
 		}
 	}
 
-	return result
+	return result, nil
+}
+
+func playlistConflictText(conflict merger.MergeConflict, db *model.Database) (string, string) {
+	fields := model.PlaylistChangedFields(conflict.Left, conflict.Right)
+	if len(fields) == 0 {
+		return conflict.Left.PrettyPrint(db), conflict.Right.PrettyPrint(db)
+	}
+	return model.PlaylistChangedFieldText(conflict.Left, fields), model.PlaylistChangedFieldText(conflict.Right, fields)
+}
+
+func playlistConflictContext(conflict merger.MergeConflict, db *model.Database) string {
+	if len(model.PlaylistChangedFields(conflict.Left, conflict.Right)) == 0 {
+		return ""
+	}
+	related := conflict.Left.RelatedEntries(db)
+	lines := []string{}
+	if related.Tag != nil {
+		lines = append(lines, "Playlist: "+related.Tag.Name)
+	}
+	item := related.PlaylistItem
+	if direct, ok := conflict.Left.(*model.PlaylistItem); ok {
+		item = direct
+	}
+	// A changing label belongs in the comparison; only an unchanged label is
+	// common context. Mapping conflicts already relate to the chosen item.
+	labelChanged := false
+	for _, field := range model.PlaylistChangedFields(conflict.Left, conflict.Right) {
+		labelChanged = labelChanged || field == "label"
+	}
+	if item != nil && item.Label != "" && !labelChanged {
+		lines = append(lines, "Item: "+item.Label)
+	}
+	if related.IndependentMedia != nil {
+		name := related.IndependentMedia.OriginalFilename
+		if name == "" {
+			name = related.IndependentMedia.FilePath
+		}
+		lines = append(lines, "Source: "+name)
+	} else if related.Location != nil {
+		name := related.Location.Title.String
+		if name == "" {
+			name = related.Location.KeySymbol.String
+		}
+		if name != "" {
+			lines = append(lines, "Source: "+name)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func init() {
@@ -329,5 +443,6 @@ func init() {
 	mergeCmd.Flags().StringVar(&MarkingResolver, "markings", "", "Resolve conflicting markings with resolver (can be 'chooseLeft' or 'chooseRight')")
 	mergeCmd.Flags().StringVar(&NoteResolver, "notes", "", "Resolve conflicting notes with resolver (can be 'chooseNewest', 'chooseLeft', or 'chooseRight')")
 	mergeCmd.Flags().StringVar(&InputFieldResolver, "inputFields", "", "Resolve conflicting inputFields with resolver (can be 'chooseLeft', or 'chooseRight')")
-	mergeCmd.Flags().BoolVar(&SkipPlaylists, "skipPlaylists", false, "Skip playlists when importing backups. It is meant as a temporary workaround until merging of playlists is implemented.")
+	mergeCmd.Flags().StringVar(&PlaylistResolver, "playlists", "", "Resolve conflicting playlist items with resolver (can be 'chooseLeft' or 'chooseRight')")
+	mergeCmd.Flags().BoolVar(&SkipUnsupportedPlaylists, "skipUnsupportedPlaylists", false, "Leave out the playlists of a backup if they use features that cannot be merged yet (like markers).")
 }

@@ -33,15 +33,17 @@ type MergeConflictsWrapper struct {
 // to merger.MergeConflict, but represents the Models as strings
 // to make it compatible with Gomobile.
 type MergeConflict struct {
-	Key   string
-	Left  string
-	Right string
+	Key           string
+	Left          string
+	Right         string
+	ChangedFields string // JSON array of meaningful playlist setting field names.
 }
 
 // modelRelatedTuple contains a model and its related entries
 type modelRelatedTuple struct {
-	Model   model.Model   `json:"model"`
-	Related model.Related `json:"related"`
+	Model     model.Model   `json:"model"`
+	Related   model.Related `json:"related"`
+	SourceURL string        `json:"sourceURL,omitempty"`
 }
 
 // InitDBWrapper initializes the DatabaseWrapper for the MergeConflictsWrapper
@@ -92,18 +94,27 @@ func (mcw *MergeConflictsWrapper) NextConflict() (*MergeConflict, error) {
 	result := &MergeConflict{
 		Key: conflictKey,
 	}
+	changed, err := json.Marshal(model.PlaylistChangedFields(conflict.Left, conflict.Right))
+	if err != nil {
+		return nil, err
+	}
+	result.ChangedFields = string(changed)
+	leftRelated := conflict.Left.RelatedEntries(mcw.DBWrapper.merged)
 	jsn, err := json.Marshal(modelRelatedTuple{
-		Model:   conflict.Left,
-		Related: conflict.Left.RelatedEntries(mcw.DBWrapper.merged),
+		Model:     conflict.Left,
+		Related:   leftRelated,
+		SourceURL: playlistConflictSourceURL(conflict.Left, leftRelated, mcw.DBWrapper.left),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "Error while marshalling to JSON")
 	}
 	result.Left = string(jsn)
 
+	rightRelated := conflict.Right.RelatedEntries(mcw.DBWrapper.merged)
 	jsn, err = json.Marshal(modelRelatedTuple{
-		Model:   conflict.Right,
-		Related: conflict.Right.RelatedEntries(mcw.DBWrapper.merged),
+		Model:     conflict.Right,
+		Related:   rightRelated,
+		SourceURL: playlistConflictSourceURL(conflict.Right, rightRelated, mcw.DBWrapper.right),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "Error while marshalling to JSON")
@@ -146,4 +157,35 @@ func (mcw *MergeConflictsWrapper) SolveConflict(key string, side string) error {
 	delete(mcw.unsolvedConflicts, key)
 
 	return nil
+}
+
+// playlistConflictSourceURL returns a jw.org link to the source of a playlist
+// conflict. An item conflict uses the item ID of its backup, so the media type
+// comes from the location map of that backup. A location map conflict has the
+// media type itself.
+func playlistConflictSourceURL(mdl model.Model, related model.Related, source *model.Database) string {
+	switch item := mdl.(type) {
+	case *model.PlaylistItem:
+		if source == nil {
+			return ""
+		}
+		var mapping *model.PlaylistItemLocationMap
+		for _, row := range source.PlaylistItemLocationMap {
+			if row == nil || row.PlaylistItemID != item.PlaylistItemID {
+				continue
+			}
+			if mapping != nil {
+				return ""
+			}
+			mapping = row
+		}
+		if mapping == nil {
+			return ""
+		}
+		return model.PlaylistSourceURL(related.Location, mapping.MajorMultimediaType)
+	case *model.PlaylistItemLocationMap:
+		return model.PlaylistSourceURL(related.Location, item.MajorMultimediaType)
+	default:
+		return ""
+	}
 }

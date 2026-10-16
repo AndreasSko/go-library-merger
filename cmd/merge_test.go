@@ -6,10 +6,14 @@ package cmd
 import (
 	"bytes"
 	"database/sql"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/AlecAivazis/survey/v2/terminal"
+	"github.com/AndreasSko/go-library-merger/internal/playlisttest"
 	"github.com/AndreasSko/go-library-merger/model"
 	expect "github.com/Netflix/go-expect"
 	"github.com/stretchr/testify/assert"
@@ -42,10 +46,11 @@ func Test_merge(t *testing.T) {
 			assert.NoError(t, err)
 		},
 		func(t *testing.T, c *expect.Console) {
-			merge(leftFilename, emptyFilename, mergedFilename,
-				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+			require.NoError(t, merge(leftFilename, emptyFilename, mergedFilename,
+				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 			merged := &model.Database{}
-			merged.ImportJWLBackup(mergedFilename)
+			require.NoError(t, merged.ImportJWLBackup(mergedFilename))
+			defer func() { require.NoError(t, merged.Close()) }()
 			assert.True(t, leftDB.Equals(merged))
 		})
 
@@ -67,10 +72,11 @@ func Test_merge(t *testing.T) {
 			c.ExpectEOF()
 		},
 		func(t *testing.T, c *expect.Console) {
-			merge(leftFilename, rightFilename, mergedFilename,
-				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+			require.NoError(t, merge(leftFilename, rightFilename, mergedFilename,
+				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 			merged := &model.Database{}
-			merged.ImportJWLBackup(mergedFilename)
+			require.NoError(t, merged.ImportJWLBackup(mergedFilename))
+			defer func() { require.NoError(t, merged.Close()) }()
 			assert.True(t, mergedAllRightDB.Equals(merged))
 		})
 
@@ -92,10 +98,11 @@ func Test_merge(t *testing.T) {
 			c.ExpectEOF()
 		},
 		func(t *testing.T, c *expect.Console) {
-			merge(leftFilename, rightFilename, mergedFilename,
-				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+			require.NoError(t, merge(leftFilename, rightFilename, mergedFilename,
+				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 			merged := &model.Database{}
-			merged.ImportJWLBackup(mergedFilename)
+			require.NoError(t, merged.ImportJWLBackup(mergedFilename))
+			defer func() { require.NoError(t, merged.Close()) }()
 			assert.True(t, mergedAllLeftDB.Equals(merged))
 		})
 
@@ -111,10 +118,11 @@ func Test_merge(t *testing.T) {
 			MarkingResolver = "chooseRight"
 			NoteResolver = "chooseNewest"
 			InputFieldResolver = "chooseRight"
-			merge(leftFilename, rightFilename, mergedFilename,
-				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+			require.NoError(t, merge(leftFilename, rightFilename, mergedFilename,
+				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 			merged := &model.Database{}
-			merged.ImportJWLBackup(mergedFilename)
+			require.NoError(t, merged.ImportJWLBackup(mergedFilename))
+			defer func() { require.NoError(t, merged.Close()) }()
 			assert.True(t, mergedAllRightDB.Equals(merged))
 		})
 
@@ -127,12 +135,13 @@ func Test_merge(t *testing.T) {
 		},
 		func(t *testing.T, c *expect.Console) {
 			MarkingResolver = "chooseRight"
-			merge(leftMultiCollisionFilename,
+			require.NoError(t, merge(leftMultiCollisionFilename,
 				rightMultiCollisionFilename,
 				mergedFilename,
-				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 			merged := &model.Database{}
-			merged.ImportJWLBackup(mergedFilename)
+			require.NoError(t, merged.ImportJWLBackup(mergedFilename))
+			defer func() { require.NoError(t, merged.Close()) }()
 			assert.True(t, rightMultiCollision.Equals(merged))
 		})
 
@@ -159,10 +168,11 @@ func Test_merge(t *testing.T) {
 			assert.NoError(t, leftNwtDB.ExportJWLBackup(leftNwtFilename))
 			assert.NoError(t, rightNwtDB.ExportJWLBackup(rightNwtFilename))
 
-			merge(leftNwtFilename, rightNwtFilename, mergedFilename,
-				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+			require.NoError(t, merge(leftNwtFilename, rightNwtFilename, mergedFilename,
+				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 			merged := &model.Database{}
-			merged.ImportJWLBackup(mergedFilename)
+			require.NoError(t, merged.ImportJWLBackup(mergedFilename))
+			defer func() { require.NoError(t, merged.Close()) }()
 			assert.True(t, mergedAllLeftNwtDB.Equals(merged))
 		})
 
@@ -179,10 +189,11 @@ func Test_merge(t *testing.T) {
 			mergedFilename := filepath.Join(tmp, "mergedNwtWithDifferentDocIDFilename.jwlibrary")
 			assert.NoError(t, mergedDBNwtWithDifferentDocID.ExportJWLBackup(mergedFilename))
 
-			merge(leftNwtWithDifferentDocIDFilename, rightNwtWithDifferentDocIDFilename, mergedFilename,
-				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+			require.NoError(t, merge(leftNwtWithDifferentDocIDFilename, rightNwtWithDifferentDocIDFilename, mergedFilename,
+				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 			merged := &model.Database{}
-			merged.ImportJWLBackup(mergedFilename)
+			require.NoError(t, merged.ImportJWLBackup(mergedFilename))
+			defer func() { require.NoError(t, merged.Close()) }()
 			assert.True(t, mergedDBNwtWithDifferentDocID.Equals(merged))
 		})
 
@@ -213,43 +224,42 @@ func Test_merge(t *testing.T) {
 			mergedAllLeftDBEmptyBRFilename := filepath.Join(tmp, "mergedAllLeftDBEmptyBRFilename.jwlibrary")
 			assert.NoError(t, mergedAllLeftDBEmptyBR.ExportJWLBackup(mergedAllLeftDBEmptyBRFilename))
 
-			merge(leftDBEmptyBRFilename,
+			require.NoError(t, merge(leftDBEmptyBRFilename,
 				RightDBEmptyBRFilename,
 				mergedFilename,
-				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 			merged := &model.Database{}
-			merged.ImportJWLBackup(mergedAllLeftDBEmptyBRFilename)
+			require.NoError(t, merged.ImportJWLBackup(mergedAllLeftDBEmptyBRFilename))
+			defer func() { require.NoError(t, merged.Close()) }()
 			assert.True(t, mergedAllLeftDBEmptyBR.Equals(merged))
 		})
 
-	// Attempt to merge with playlists, while skipPlaylists is set to false
+	withMarker := playlisttest.Rewrite(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Markers", Items: []string{"A"}}}),
+		"INSERT INTO PlaylistItemMarker VALUES(1,1,'clip',0,100,0)", nil)
+
+	// Attempt to merge unsupported playlists, while skipUnsupportedPlaylists is false
 	RunCmdTest(t,
 		func(t *testing.T, c *expect.Console) {
-			c.ExpectString("Error: failed to import left backup: merging of playlists is not supported yet. " +
-				"Enable SkipPlaylists flag to skip this safety check")
-			c.ExpectEOF()
+			_, err := c.ExpectEOF()
+			require.NoError(t, err)
 		},
 		func(t *testing.T, c *expect.Console) {
-			merge("../model/testdata/backup_withPlaylist.jwlibrary",
-				"../model/testdata/backup_withPlaylist.jwlibrary",
-				mergedFilename,
-				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+			require.Error(t, merge(withMarker, withMarker, mergedFilename,
+				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 		},
 	)
 
-	// Merge with playlists and skipPlaylists set to true
+	// Merge unsupported playlists with skipUnsupportedPlaylists set to true
 	RunCmdTest(t,
 		func(t *testing.T, c *expect.Console) {
 			c.ExpectString("🎉 Finished merging!")
 			c.ExpectEOF()
 		},
 		func(t *testing.T, c *expect.Console) {
-			SkipPlaylists = true
-			defer func() { SkipPlaylists = false }()
-			merge("../model/testdata/backup_withPlaylist.jwlibrary",
-				"../model/testdata/backup_withPlaylist.jwlibrary",
-				mergedFilename,
-				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()})
+			SkipUnsupportedPlaylists = true
+			defer func() { SkipUnsupportedPlaylists = false }()
+			require.NoError(t, merge(withMarker, withMarker, mergedFilename,
+				terminal.Stdio{In: c.Tty(), Out: c.Tty(), Err: c.Tty()}))
 		},
 	)
 }
@@ -2192,4 +2202,64 @@ var mergedAllLeftDBEmptyBR = &model.Database{
 			Version:      1,
 		},
 	},
+}
+
+// A subprocess gives each command its own OS temporary root without changing
+// TMPDIR underneath the package's parallel tests.
+func Test_mergeFailureReleasesImports(t *testing.T) {
+	if scenario := os.Getenv("JWLM_MERGE_LIFECYCLE_CASE"); scenario != "" {
+		left, right := os.Getenv("JWLM_MERGE_LEFT"), os.Getenv("JWLM_MERGE_RIGHT")
+		output := filepath.Join(os.Getenv("TMPDIR"), "output.jwlibrary")
+		stdio := terminal.Stdio{In: os.Stdin, Out: os.Stdout, Err: os.Stderr}
+		switch scenario {
+		case "compare-right-failure":
+			require.Error(t, compare(left, right+".missing", stdio))
+			return
+		case "purge-table-failure":
+			Tables = "UnknownTable"
+			require.Error(t, purge(left, output, stdio))
+			return
+		case "purge-export-failure":
+			Tables = "Note"
+			require.Error(t, purge(left, filepath.Join(output, "missing", "output.jwlibrary"), stdio))
+			return
+		}
+		BookmarkResolver = "invalid-resolver"
+		if scenario == "cancel" {
+			BookmarkResolver = ""
+			console, err := expect.NewConsole(expect.WithDefaultTimeout(5 * time.Second))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, console.Close()) }()
+			interaction := make(chan error, 1)
+			go func() {
+				_, err := console.ExpectString("Select which side should be chosen:")
+				if err == nil {
+					_, err = console.Send("\x03")
+				}
+				interaction <- err
+			}()
+			err = merge(left, right, output, terminal.Stdio{In: console.Tty(), Out: console.Tty(), Err: console.Tty()})
+			require.ErrorContains(t, err, "conflict selection canceled or unavailable")
+			require.NoError(t, <-interaction)
+		} else {
+			require.Error(t, merge(left, right, output, terminal.Stdio{In: os.Stdin, Out: os.Stdout, Err: os.Stderr}))
+		}
+		return
+	}
+	inputs := t.TempDir()
+	left, right := filepath.Join(inputs, "left.jwlibrary"), filepath.Join(inputs, "right.jwlibrary")
+	require.NoError(t, leftDB.ExportJWLBackup(left))
+	require.NoError(t, rightDB.ExportJWLBackup(right))
+	for _, scenario := range []string{"invalid-resolver", "cancel", "compare-right-failure", "purge-table-failure", "purge-export-failure"} {
+		t.Run(scenario, func(t *testing.T) {
+			tempRoot := t.TempDir()
+			process := exec.Command(os.Args[0], "-test.run=^Test_mergeFailureReleasesImports$", "-test.timeout=20s")
+			process.Env = append(os.Environ(), "TMPDIR="+tempRoot, "JWLM_MERGE_LIFECYCLE_CASE="+scenario, "JWLM_MERGE_LEFT="+left, "JWLM_MERGE_RIGHT="+right)
+			output, err := process.CombinedOutput()
+			require.NoError(t, err, "%s", output)
+			children, err := os.ReadDir(tempRoot)
+			require.NoError(t, err)
+			require.Empty(t, children, "failed merge retained temporary imports")
+		})
+	}
 }

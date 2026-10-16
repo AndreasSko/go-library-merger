@@ -17,6 +17,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDatabase_Fetch(t *testing.T) {
@@ -513,27 +514,11 @@ func TestDatabase_importSQLite(t *testing.T) {
 			},
 		},
 		{
-			name:     "Playlists included, error!",
-			db:       &Database{},
-			filename: filepath.Join("testdata", "userData_withPlaylist.db"),
-			wantErr: func(tt assert.TestingT, err error, i ...interface{}) bool {
-				return assert.ErrorContains(t, err, "merging of playlists is not supported yet")
-			},
+			name:       "Playlists included",
+			db:         &Database{},
+			filename:   filepath.Join("testdata", "userData_withPlaylist.db"),
+			wantErr:    assert.NoError,
 			assertions: func(t *testing.T, db *Database) {},
-		},
-		{
-			name: "Playlists included, skip them!",
-			db: &Database{
-				SkipPlaylists: true,
-			},
-			filename: filepath.Join("testdata", "userData_withPlaylist.db"),
-			wantErr:  assert.NoError,
-			assertions: func(t *testing.T, db *Database) {
-				assert.Nil(t, db.Tag[3])
-				assert.NotNil(t, db.Tag[4])
-				assert.Nil(t, db.TagMap[3])
-				assert.Nil(t, db.TagMap[4])
-			},
 		},
 	}
 	for _, tt := range tests {
@@ -545,255 +530,9 @@ func TestDatabase_importSQLite(t *testing.T) {
 	}
 }
 
-func TestDatabase_removePlaylists(t *testing.T) {
-	tests := []struct {
-		name   string
-		db     *Database
-		wantDB *Database
-	}{
-		{
-			name: "No playlists",
-			db: &Database{
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 0,
-					},
-					{
-						TagID:   2,
-						TagType: 1,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					{
-						TagMapID:   1,
-						TagID:      1,
-						LocationID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-					nil,
-					{
-						TagMapID:   3,
-						TagID:      2,
-						LocationID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-				},
-			},
-			wantDB: &Database{
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 0,
-					},
-					{
-						TagID:   2,
-						TagType: 1,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					{
-						TagMapID:   1,
-						TagID:      1,
-						LocationID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-					nil,
-					{
-						TagMapID:   3,
-						TagID:      2,
-						LocationID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-				},
-			},
-		},
-		{
-			name: "Playlist tag included",
-			db: &Database{
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 2,
-					},
-					{
-						TagID:   2,
-						TagType: 1,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					{
-						TagMapID:   1,
-						TagID:      1,
-						LocationID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-					nil,
-					{
-						TagMapID:   3,
-						TagID:      2,
-						LocationID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-				},
-			},
-			wantDB: &Database{
-				ContainsPlaylists: true,
-				Tag: []*Tag{
-					nil,
-					nil,
-					{
-						TagID:   2,
-						TagType: 1,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					{
-						TagMapID:   1,
-						TagID:      1,
-						LocationID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-					nil,
-					{
-						TagMapID:   3,
-						TagID:      2,
-						LocationID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-				},
-			},
-		},
-		{
-			name: "Playlist entry in TagMap included",
-			db: &Database{
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 0,
-					},
-					{
-						TagID:   2,
-						TagType: 1,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					{
-						TagMapID:       1,
-						TagID:          1,
-						PlaylistItemID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-					nil,
-					{
-						TagMapID:   3,
-						TagID:      2,
-						LocationID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-				},
-			},
-			wantDB: &Database{
-				ContainsPlaylists: true,
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 0,
-					},
-					{
-						TagID:   2,
-						TagType: 1,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					nil,
-					nil,
-					{
-						TagMapID:   3,
-						TagID:      2,
-						LocationID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-				},
-			},
-		},
-		{
-			name: "Playlist with entries included",
-			db: &Database{
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 1,
-					},
-					{
-						TagID:   2,
-						TagType: 2,
-					},
-					{
-						TagID:   3,
-						TagType: 2,
-					},
-				},
-				TagMap: []*TagMap{
-					nil,
-					{
-						TagMapID:       1,
-						TagID:          2,
-						PlaylistItemID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-					{
-						TagMapID:       2,
-						TagID:          2,
-						PlaylistItemID: sql.NullInt32{Int32: 2, Valid: true},
-					},
-					{
-						TagMapID:       3,
-						TagID:          3,
-						PlaylistItemID: sql.NullInt32{Int32: 3, Valid: true},
-					},
-					{
-						TagMapID:   4,
-						TagID:      1,
-						LocationID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-				},
-			},
-			wantDB: &Database{
-				ContainsPlaylists: true,
-				Tag: []*Tag{
-					nil,
-					{
-						TagID:   1,
-						TagType: 1,
-					},
-					nil,
-					nil,
-				},
-				TagMap: []*TagMap{
-					nil,
-					nil,
-					nil,
-					nil,
-					{
-						TagMapID:   4,
-						TagID:      1,
-						LocationID: sql.NullInt32{Int32: 1, Valid: true},
-					},
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.db.removePlaylists()
-			assert.Equal(t, tt.wantDB, tt.db)
-		})
-	}
-}
-
 func TestDatabase_ImportJWLBackup(t *testing.T) {
 	db := Database{}
+	defer func() { assert.NoError(t, db.Close()) }()
 
 	path := filepath.Join("testdata", "backup.jwlibrary")
 	assert.NoError(t, db.ImportJWLBackup(path))
@@ -816,6 +555,7 @@ func TestDatabase_ExportJWLBackup(t *testing.T) {
 
 	// Test if import->export->import tweakes Data in wrong way
 	db := Database{}
+	defer func() { assert.NoError(t, db.Close()) }()
 
 	path := filepath.Join("testdata", "backup.jwlibrary")
 	assert.NoError(t, db.ImportJWLBackup(path))
@@ -830,7 +570,6 @@ func TestDatabase_ExportJWLBackup(t *testing.T) {
 		assert.Contains(t, filenames, expected)
 	}
 
-	db = Database{}
 	assert.NoError(t, db.ImportJWLBackup(newPath))
 
 	assert.Len(t, db.BlockRange, 5)
@@ -922,7 +661,9 @@ func TestDatabase_saveToNewSQLite(t *testing.T) {
 
 func TestDatabase_Equals(t *testing.T) {
 	db1 := &Database{}
+	defer func() { assert.NoError(t, db1.Close()) }()
 	db2 := &Database{}
+	defer func() { assert.NoError(t, db2.Close()) }()
 
 	path := filepath.Join("testdata", "backup.jwlibrary")
 	assert.NoError(t, db1.ImportJWLBackup(path))
@@ -937,6 +678,7 @@ func TestDatabase_Equals(t *testing.T) {
 	assert.False(t, db1.Equals(db2))
 
 	db3 := &Database{}
+	defer func() { assert.NoError(t, db3.Close()) }()
 	path = filepath.Join("testdata", "backup_shuffled.jwlibrary")
 	assert.NoError(t, db3.ImportJWLBackup(path))
 	assert.True(t, db2.Equals(db3))
@@ -956,4 +698,102 @@ func filenamesInZip(path string) ([]string, error) {
 	}
 
 	return filenames, nil
+}
+
+func TestDatabaseFileOwnership(t *testing.T) {
+	for _, operation := range []string{"close copy", "close owner", "replace directory"} {
+		t.Run(operation, func(t *testing.T) {
+			parent := t.TempDir()
+			db := &Database{TempDir: parent}
+			require.NoError(t, db.CreateWorkingDirectory())
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			dir := db.WorkingDir
+			file := filepath.Join(dir, "payload")
+			require.NoError(t, os.WriteFile(file, []byte("retained"), 0600))
+			copy := MakeDatabaseCopy(db)
+			require.Equal(t, dir, copy.WorkingDir)
+			require.False(t, copy.ownsWorkingDir)
+			require.True(t, db.Equals(copy))
+			switch operation {
+			case "close copy":
+				require.NoError(t, copy.Close())
+				require.FileExists(t, file)
+			case "close owner":
+				require.NoError(t, db.Close())
+				require.NoFileExists(t, file)
+				require.Empty(t, db.WorkingDir)
+				require.NoError(t, db.Close())
+			case "replace directory":
+				require.NoError(t, db.CreateWorkingDirectory())
+				require.NotEqual(t, dir, db.WorkingDir)
+				require.NoDirExists(t, dir)
+				require.DirExists(t, db.WorkingDir)
+			}
+			require.DirExists(t, parent)
+		})
+	}
+	borrowed := &Database{WorkingDir: t.TempDir()}
+	require.NoError(t, borrowed.Close())
+	require.DirExists(t, borrowed.WorkingDir)
+	require.NoError(t, (*Database)(nil).Close())
+}
+
+func TestDatabaseImportReplacement(t *testing.T) {
+	for _, valid := range []bool{false, true} {
+		name := "failed import preserves files and tables"
+		if valid {
+			name = "successful import releases previous files"
+		}
+		t.Run(name, func(t *testing.T) {
+			parent := t.TempDir()
+			db := &Database{TempDir: parent}
+			archive := filepath.Join("testdata", "backup.jwlibrary")
+			require.NoError(t, db.ImportJWLBackup(archive))
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			dir := db.WorkingDir
+			require.FileExists(t, filepath.Join(dir, userDataFilename))
+			original := MakeDatabaseCopy(db)
+			if valid {
+				require.NoError(t, db.ImportJWLBackup(archive))
+				require.NotEqual(t, dir, db.WorkingDir)
+				require.NoDirExists(t, dir)
+			} else {
+				// This fails after extraction, rather than only before opening a ZIP.
+				broken := filepath.Join(parent, "broken.jwlibrary")
+				require.NoError(t, zipFiles(broken, []string{archive}))
+				require.Error(t, db.ImportJWLBackup(broken))
+				require.Equal(t, dir, db.WorkingDir)
+				require.FileExists(t, filepath.Join(dir, userDataFilename))
+			}
+			require.True(t, db.Equals(original))
+			entries, err := os.ReadDir(parent)
+			require.NoError(t, err)
+			directories := 0
+			for _, entry := range entries {
+				if entry.IsDir() {
+					directories++
+				}
+			}
+			require.Equal(t, 1, directories, "failed candidates must not leak directories")
+			require.FileExists(t, archive, "the original archive is never owned")
+		})
+	}
+}
+
+func TestDatabaseCleanupFailureCanRetry(t *testing.T) {
+	// RemoveAll rejects a path that ends in ".", which lets us make Close fail.
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "owned")
+	require.NoError(t, os.Mkdir(dir, 0700))
+	db := &Database{TempDir: parent, WorkingDir: dir + string(os.PathSeparator) + ".", ownsWorkingDir: true}
+	require.Error(t, db.Close())
+	require.True(t, db.ownsWorkingDir)
+	require.Error(t, db.CreateWorkingDirectory())
+	entries, err := os.ReadDir(parent)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "the new directory must be removed again")
+	db.WorkingDir = dir
+	require.NoError(t, db.Close())
+	require.Empty(t, db.WorkingDir)
+	require.NoDirExists(t, dir)
 }

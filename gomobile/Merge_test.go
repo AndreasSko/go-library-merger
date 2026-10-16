@@ -17,7 +17,8 @@ func Test_MergeMultiCollisionAllRight(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftMultiCollision),
 		right: model.MakeDatabaseCopy(rightMultiCollision),
 	}
-	dbw.Init()
+	defer func() { assert.NoError(t, dbw.Close()) }()
+	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
 	assert.NoError(t, dbw.MergeLocations())
@@ -66,7 +67,8 @@ func Test_MergeMultiCollisionAllExceptOneRight(t *testing.T) {
 			left:  model.MakeDatabaseCopy(leftMultiCollision),
 			right: model.MakeDatabaseCopy(rightMultiCollision),
 		}
-		dbw.Init()
+		defer func() { assert.NoError(t, dbw.Close()) }()
+		assert.NoError(t, dbw.Init())
 
 		mcw := &MergeConflictsWrapper{}
 		assert.NoError(t, dbw.MergeLocations())
@@ -126,7 +128,8 @@ func Test_MergeMultiCollisionAutoSolver(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftMultiCollision),
 		right: model.MakeDatabaseCopy(rightMultiCollision),
 	}
-	dbw.Init()
+	defer func() { assert.NoError(t, dbw.Close()) }()
+	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
 	assert.NoError(t, dbw.MergeLocations())
@@ -145,7 +148,8 @@ func Test_MergeNwt(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftNwtDB),
 		right: model.MakeDatabaseCopy(rightNwtDB),
 	}
-	dbw.Init()
+	defer func() { assert.NoError(t, dbw.Close()) }()
+	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
 	assert.NoError(t, dbw.MergeLocations())
@@ -168,7 +172,8 @@ func Test_MergeNwtDifferentDocID(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftDBNwtWithDifferentDocID),
 		right: model.MakeDatabaseCopy(rightDBNwtWithDifferentDocID),
 	}
-	dbw.Init()
+	defer func() { assert.NoError(t, dbw.Close()) }()
+	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
 	assert.NoError(t, dbw.MergeLocations())
@@ -183,6 +188,7 @@ func Test_MergeNwtDifferentDocID(t *testing.T) {
 	assert.NoError(t, dbw.ExportMerged(newBackup))
 
 	newDB := &model.Database{}
+	defer func() { assert.NoError(t, newDB.Close()) }()
 	assert.NoError(t, newDB.ImportJWLBackup(newBackup))
 
 	assert.True(t, newDB.Equals(mergedDBNwtWithDifferentDocID))
@@ -352,7 +358,8 @@ func Test_MergeWithEmpty(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftDB),
 		right: model.MakeDatabaseCopy(emptyDB),
 	}
-	dbw.Init()
+	defer func() { assert.NoError(t, dbw.Close()) }()
+	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
 
@@ -373,7 +380,8 @@ func Test_MergeAllRight(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftDB),
 		right: model.MakeDatabaseCopy(rightDB),
 	}
-	dbw.Init()
+	defer func() { assert.NoError(t, dbw.Close()) }()
+	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
 
@@ -381,13 +389,13 @@ func Test_MergeAllRight(t *testing.T) {
 	assert.Error(t, dbw.MergeBookmarks("", mcw))
 	selectSameSide(mcw, "rightSide")
 
-	dbw.Init()
+	assert.NoError(t, dbw.Init())
 	assert.NoError(t, dbw.MergeLocations())
 	assert.NoError(t, dbw.MergeBookmarks("", mcw))
 	assert.Error(t, dbw.MergeInputFields("", mcw))
 	selectSameSide(mcw, "rightSide")
 
-	dbw.Init()
+	assert.NoError(t, dbw.Init())
 	assert.NoError(t, dbw.MergeLocations())
 	assert.NoError(t, dbw.MergeBookmarks("", mcw))
 	assert.NoError(t, dbw.MergeInputFields("", mcw))
@@ -395,7 +403,7 @@ func Test_MergeAllRight(t *testing.T) {
 	assert.Error(t, dbw.MergeUserMarkAndBlockRange("", mcw))
 	selectSameSide(mcw, "rightSide")
 
-	dbw.Init()
+	assert.NoError(t, dbw.Init())
 	assert.NoError(t, dbw.MergeLocations())
 	assert.NoError(t, dbw.MergeBookmarks("", mcw))
 	assert.NoError(t, dbw.MergeInputFields("", mcw))
@@ -404,7 +412,7 @@ func Test_MergeAllRight(t *testing.T) {
 	assert.Error(t, dbw.MergeNotes("", mcw))
 	selectSameSide(mcw, "rightSide")
 
-	dbw.Init()
+	assert.NoError(t, dbw.Init())
 	assert.NoError(t, dbw.MergeLocations())
 	assert.NoError(t, dbw.MergeBookmarks("", mcw))
 	assert.NoError(t, dbw.MergeInputFields("", mcw))
@@ -422,7 +430,8 @@ func Test_MergeAllLeft(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftDB),
 		right: model.MakeDatabaseCopy(rightDB),
 	}
-	dbw.Init()
+	defer func() { assert.NoError(t, dbw.Close()) }()
+	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
 
@@ -430,13 +439,13 @@ func Test_MergeAllLeft(t *testing.T) {
 	assert.Error(t, dbw.MergeBookmarks("", mcw))
 	selectSameSide(mcw, "leftSide")
 
-	dbw.Init()
+	assert.NoError(t, dbw.Init())
 	assert.NoError(t, dbw.MergeLocations())
 	assert.NoError(t, dbw.MergeBookmarks("", mcw))
 	assert.Error(t, dbw.MergeInputFields("", mcw))
 	selectSameSide(mcw, "leftSide")
 
-	dbw.Init()
+	assert.NoError(t, dbw.Init())
 	assert.NoError(t, dbw.MergeLocations())
 	assert.NoError(t, dbw.MergeBookmarks("", mcw))
 	assert.NoError(t, dbw.MergeInputFields("", mcw))
@@ -444,7 +453,7 @@ func Test_MergeAllLeft(t *testing.T) {
 	assert.Error(t, dbw.MergeUserMarkAndBlockRange("", mcw))
 	selectSameSide(mcw, "leftSide")
 
-	dbw.Init()
+	assert.NoError(t, dbw.Init())
 	assert.NoError(t, dbw.MergeLocations())
 	assert.NoError(t, dbw.MergeBookmarks("", mcw))
 	assert.NoError(t, dbw.MergeInputFields("", mcw))
@@ -453,7 +462,7 @@ func Test_MergeAllLeft(t *testing.T) {
 	assert.Error(t, dbw.MergeNotes("", mcw))
 	selectSameSide(mcw, "leftSide")
 
-	dbw.Init()
+	assert.NoError(t, dbw.Init())
 	assert.NoError(t, dbw.MergeLocations())
 	assert.NoError(t, dbw.MergeBookmarks("", mcw))
 	assert.NoError(t, dbw.MergeInputFields("", mcw))
@@ -472,7 +481,8 @@ func Test_MergeWithAutoresolution(t *testing.T) {
 		left:  model.MakeDatabaseCopy(leftDB),
 		right: model.MakeDatabaseCopy(rightDB),
 	}
-	dbw.Init()
+	defer func() { assert.NoError(t, dbw.Close()) }()
+	assert.NoError(t, dbw.Init())
 
 	mcw := &MergeConflictsWrapper{}
 

@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -11,8 +14,10 @@ import (
 	"github.com/AlecAivazis/survey/v2/terminal"
 	"github.com/AndreasSko/go-library-merger/merger"
 	"github.com/AndreasSko/go-library-merger/model"
+	"github.com/AndreasSko/go-library-merger/publication"
 	"github.com/buger/goterm"
 	"github.com/jedib0t/go-pretty/table"
+	"github.com/jedib0t/go-pretty/text"
 	"github.com/spf13/cobra"
 )
 
@@ -32,6 +37,9 @@ library-merger merge left.jwlibrary right.jwlibrary merged.jwlibrary --bookmarks
 		leftFilename := args[0]
 		rightFilename := args[1]
 		mergedFilename := args[2]
+		if dir, err := os.UserCacheDir(); err == nil {
+			snippetCacheDir = filepath.Join(dir, "library-merger")
+		}
 		return merge(leftFilename, rightFilename, mergedFilename, terminal.Stdio{In: os.Stdin, Out: os.Stdout, Err: os.Stderr})
 	},
 	Args: cobra.ExactArgs(3),
@@ -52,11 +60,20 @@ var InputFieldResolver string
 // PlaylistResolver represents a resolver that should be used for conflicting playlist items
 var PlaylistResolver string
 
+// snippetCacheDir is where the text of publications is cached, so conflicting
+// markings can show the text they mark. If it is empty, no text is shown.
+var snippetCacheDir string
+
+// snippetFailures holds the publications whose text could not be looked up
+// during this merge, so they are not tried again for every conflict.
+var snippetFailures = map[string]bool{}
+
 // SkipUnsupportedPlaylists leaves out the playlists of a backup if they use
 // features that cannot be merged yet, instead of stopping the merge.
 var SkipUnsupportedPlaylists bool
 
 func merge(leftFilename string, rightFilename string, mergedFilename string, stdio terminal.Stdio) (resultErr error) {
+	snippetFailures = map[string]bool{}
 	if PlaylistResolver != "" && PlaylistResolver != "chooseLeft" && PlaylistResolver != "chooseRight" {
 		return fmt.Errorf("playlist resolver must be chooseLeft or chooseRight, got %q", PlaylistResolver)
 	}
@@ -352,6 +369,16 @@ func handleMergeConflict(conflicts map[string]merger.MergeConflict, mergedDB *mo
 
 		t.SetOutputMirror(stdio.Out)
 		leftText, rightText := playlistConflictText(conflict, mergedDB)
+		leftMarking, err := markingText(conflict.Left, mergedDB, stdio.Out)
+		if err != nil {
+			return nil, err
+		}
+		rightMarking, err := markingText(conflict.Right, mergedDB, stdio.Out)
+		if err != nil {
+			return nil, err
+		}
+		leftText += leftMarking
+		rightText += rightMarking
 		if goterm.Width() >= 190 {
 			t.AppendHeader(table.Row{"Left", "Right"})
 			t.AppendRow([]interface{}{leftText, rightText})
@@ -366,7 +393,7 @@ func handleMergeConflict(conflicts map[string]merger.MergeConflict, mergedDB *mo
 		}
 
 		var selected string
-		err := survey.AskOne(prompt, &selected, survey.WithStdio(stdio.In, stdio.Out, stdio.Err))
+		err = survey.AskOne(prompt, &selected, survey.WithStdio(stdio.In, stdio.Out, stdio.Err))
 		if err != nil {
 			return nil, fmt.Errorf("conflict selection canceled or unavailable: %w", err)
 		}
@@ -395,6 +422,76 @@ func playlistConflictText(conflict merger.MergeConflict, db *model.Database) (st
 		return conflict.Left.PrettyPrint(db), conflict.Right.PrettyPrint(db)
 	}
 	return model.PlaylistChangedFieldText(conflict.Left, fields), model.PlaylistChangedFieldText(conflict.Right, fields)
+}
+
+// markingText returns the paragraphs that a marking covers, with the marked
+// text highlighted. It returns "" for other models or if the text is not
+// available. If the publication has to be downloaded first, it tells so on
+// out.
+func markingText(mdl model.Model, db *model.Database, out io.Writer) (string, error) {
+	marking, ok := mdl.(*model.UserMarkBlockRange)
+	if !ok || snippetCacheDir == "" {
+		return "", nil
+	}
+	location := marking.RelatedEntries(db).Location
+	if location == nil {
+		return "", nil
+	}
+	key := fmt.Sprintf("%s_%d_%d", location.KeySymbol.String, location.MepsLanguage.Int32, location.IssueTagNumber)
+	if snippetFailures[key] {
+		return "", nil
+	}
+	if publication.NeedsDownload(snippetCacheDir, location, marking.BlockRanges) {
+		name := location.Title.String
+		if name == "" {
+			name = location.KeySymbol.String
+			if location.IssueTagNumber != 0 {
+				name += fmt.Sprintf(" %d", location.IssueTagNumber)
+			}
+		}
+		if _, err := fmt.Fprintf(out, "⬇️  Downloading %s from jw.org to show the marked text\n", name); err != nil {
+			return "", err
+		}
+	}
+	snippets, err := publication.MarkingSnippets(context.Background(), snippetCacheDir, location, marking.BlockRanges)
+	if err != nil {
+		snippetFailures[key] = true
+		return "", nil
+	}
+	var result string
+	for _, s := range snippets {
+		marked := markingHighlight(marking.UserMark.ColorIndex).Sprint(s.Marked)
+		result += "\n" + text.WrapSoft(s.Before+marked+s.After, 80) + "\n"
+	}
+	return result, nil
+}
+
+// markingColors are the colors of the iOS app for each ColorIndex, with the
+// closest of the 256 terminal colors for terminals without 24-bit color.
+var markingColors = map[int]struct {
+	rgb     [3]text.Color
+	ansi256 text.Color
+}{
+	1: {[3]text.Color{255, 237, 59}, 227},
+	2: {[3]text.Color{158, 250, 82}, 155},
+	3: {[3]text.Color{41, 181, 245}, 39},
+	4: {[3]text.Color{255, 161, 199}, 218},
+	5: {[3]text.Color{255, 186, 117}, 216},
+	6: {[3]text.Color{173, 133, 255}, 141},
+}
+
+// markingHighlight returns the colors to highlight the text of a marking
+// with. It uses 24-bit color only if the terminal says it supports it via
+// COLORTERM, as other terminals would show wrong colors.
+func markingHighlight(colorIndex int) text.Colors {
+	c, ok := markingColors[colorIndex]
+	if !ok {
+		return text.Colors{text.BgWhite, text.FgBlack}
+	}
+	if colorterm := os.Getenv("COLORTERM"); colorterm == "truecolor" || colorterm == "24bit" {
+		return text.Colors{48, 2, c.rgb[0], c.rgb[1], c.rgb[2], text.FgBlack}
+	}
+	return text.Colors{48, 5, c.ansi256, text.FgBlack}
 }
 
 func playlistConflictContext(conflict merger.MergeConflict, db *model.Database) string {

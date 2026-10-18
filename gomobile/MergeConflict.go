@@ -1,6 +1,7 @@
 package gomobile
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/AndreasSko/go-library-merger/merger"
 	"github.com/AndreasSko/go-library-merger/model"
+	"github.com/AndreasSko/go-library-merger/publication"
 )
 
 // MergeConflictError indicates that a conflict happened while merging. It
@@ -157,6 +159,38 @@ func (mcw *MergeConflictsWrapper) SolveConflict(key string, side string) error {
 	delete(mcw.unsolvedConflicts, key)
 
 	return nil
+}
+
+// MarkingSnippets returns the text of the paragraphs that the marking on the
+// given side of a conflict covers, as a JSON array of objects with the fields
+// before, marked, and after. If the text of the publication is not cached in
+// cacheDir yet, it is downloaded from jw.org.
+func (mcw *MergeConflictsWrapper) MarkingSnippets(key string, side string, cacheDir string) (string, error) {
+	conflict, exists := mcw.conflicts[key]
+	if !exists {
+		return "", fmt.Errorf("conflict with key %s does not exist", key)
+	}
+	var mdl model.Model
+	switch side {
+	case "leftSide":
+		mdl = conflict.Left
+	case "rightSide":
+		mdl = conflict.Right
+	default:
+		return "", fmt.Errorf("side %s is not valid", side)
+	}
+
+	snippets := []publication.Snippet{}
+	if marking, ok := mdl.(*model.UserMarkBlockRange); ok && mcw.DBWrapper != nil {
+		location := marking.RelatedEntries(mcw.DBWrapper.merged).Location
+		result, err := publication.MarkingSnippets(context.Background(), cacheDir, location, marking.BlockRanges)
+		if err != nil {
+			return "", err
+		}
+		snippets = append(snippets, result...)
+	}
+	jsn, err := json.Marshal(snippets)
+	return string(jsn), err
 }
 
 // playlistConflictSourceURL returns a jw.org link to the source of a playlist

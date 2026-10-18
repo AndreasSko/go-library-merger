@@ -6,6 +6,8 @@ package gomobile
 import (
 	"database/sql"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/AndreasSko/go-library-merger/merger"
@@ -212,4 +214,48 @@ func TestMergeConflictsWrapper_SolveConflict(t *testing.T) {
 	assert.Empty(t, mcw.unsolvedConflicts)
 	_, err := mcw.NextConflict()
 	assert.EqualError(t, err, "There are no unsolved conflicts")
+}
+
+func TestMergeConflictsWrapper_MarkingSnippets(t *testing.T) {
+	cacheDir := t.TempDir()
+	cached := `{"2020360":{"2":"Jehovah’s people read Joel 2:7."}}`
+	assert.NoError(t, os.WriteFile(filepath.Join(cacheDir, "w_E_20200400.json"), []byte(cached), 0o644))
+
+	marking := func(start, end int32) *model.UserMarkBlockRange {
+		return &model.UserMarkBlockRange{
+			UserMark: &model.UserMark{LocationID: 1},
+			BlockRanges: []*model.BlockRange{{
+				BlockType:  1,
+				Identifier: 2,
+				StartToken: sql.NullInt32{Int32: start, Valid: true},
+				EndToken:   sql.NullInt32{Int32: end, Valid: true},
+			}},
+		}
+	}
+	mcw := MergeConflictsWrapper{
+		DBWrapper: &DatabaseWrapper{merged: &model.Database{
+			Location: []*model.Location{nil, {
+				LocationID:     1,
+				DocumentID:     sql.NullInt64{Int64: 2020360, Valid: true},
+				IssueTagNumber: 20200400,
+				KeySymbol:      sql.NullString{String: "w", Valid: true},
+				MepsLanguage:   sql.NullInt32{Int32: 0, Valid: true},
+			}},
+		}},
+		conflicts: map[string]merger.MergeConflict{
+			"1": {Left: marking(0, 1), Right: marking(3, 4)},
+			"2": {Left: &model.Tag{Name: "2Left"}, Right: &model.Tag{Name: "2Right"}},
+		},
+	}
+
+	result, err := mcw.MarkingSnippets("1", "rightSide", cacheDir)
+	assert.NoError(t, err)
+	assert.JSONEq(t, `[{"before":"Jehovah’s people read ","marked":"Joel 2:7","after":"."}]`, result)
+
+	result, err = mcw.MarkingSnippets("2", "leftSide", cacheDir)
+	assert.NoError(t, err)
+	assert.Equal(t, "[]", result)
+
+	_, err = mcw.MarkingSnippets("1", "wrongSide", cacheDir)
+	assert.EqualError(t, err, "side wrongSide is not valid")
 }

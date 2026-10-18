@@ -460,6 +460,7 @@ func markingText(mdl model.Model, db *model.Database, out io.Writer) (string, er
 	}
 	var result string
 	for _, s := range snippets {
+		s = publication.Shorten(s)
 		marked := markingHighlight(marking.UserMark.ColorIndex).Sprint(s.Marked)
 		result += "\n" + text.WrapSoft(s.Before+marked+s.After, 80) + "\n"
 	}

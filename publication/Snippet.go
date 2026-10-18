@@ -341,3 +341,46 @@ func markTokens(text string, start int, end int) (Snippet, bool) {
 	from, to := tokens[start][0], tokens[end][1]
 	return Snippet{Before: text[:from], Marked: text[from:to], After: text[to:]}, true
 }
+
+// maxContext is the number of characters that are kept at most before and
+// after the marked text
+const maxContext = 80
+
+// sentenceEnd matches the end of a sentence and the space after it. It needs
+// a word of at least two letters or a closing bracket before the punctuation
+// mark, so abbreviations like "C. T. Russell" or "z. B." do not end one, and
+// a capital letter or an opening quote after it, so references like
+// "Joh. 4:3" do not either.
+var sentenceEnd = regexp.MustCompile(`(?:\p{L}{2}|\))[.!?]+[”“"’'»)\]]*(\s+)[\p{Lu}„“"‘«(]`)
+
+// Shorten keeps only the sentences of a snippet that contain the marked text.
+// Context that is still longer than maxContext is cut at a word and marked
+// with "…".
+func Shorten(s Snippet) Snippet {
+	text := s.Before + s.Marked + s.After
+	from, to := len(s.Before), len(s.Before)+len(s.Marked)
+	start, end := 0, len(text)
+	for _, m := range sentenceEnd.FindAllStringSubmatchIndex(text, -1) {
+		spaceStart, spaceEnd := m[2], m[3]
+		if spaceEnd <= from {
+			start = spaceEnd
+		}
+		if spaceStart >= to && end == len(text) {
+			end = spaceStart
+		}
+	}
+
+	before, after := text[start:from], text[to:end]
+	if r := []rune(before); len(r) > maxContext {
+		before = string(r[len(r)-maxContext:])
+		before = "…" + before[strings.IndexByte(before, ' ')+1:]
+	}
+	if r := []rune(after); len(r) > maxContext {
+		after = string(r[:maxContext])
+		if i := strings.LastIndexByte(after, ' '); i > 0 {
+			after = after[:i]
+		}
+		after = strings.TrimRight(after, ",;:–— ") + "…"
+	}
+	return Snippet{Before: before, Marked: s.Marked, After: after}
+}

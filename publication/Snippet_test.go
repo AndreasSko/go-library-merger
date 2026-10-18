@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -95,5 +96,30 @@ func Test_markTokens(t *testing.T) {
 		snippet, ok := markTokens(text, tt.start, tt.end)
 		assert.Equal(t, tt.ok, ok)
 		assert.Equal(t, tt.marked, snippet.Marked)
+	}
+}
+
+func TestShorten(t *testing.T) {
+	long := strings.Repeat("word ", 30)
+	tests := []struct {
+		name     string
+		input    Snippet
+		expected Snippet
+	}{
+		{
+			name:     "keeps the sentence of the marked text",
+			input:    Snippet{Before: "First one. Bruder C. T. Russell read ", Marked: "Joh. 4:3", After: " (Joh. 4:3-6). Then he left."},
+			expected: Snippet{Before: "Bruder C. T. Russell read ", Marked: "Joh. 4:3", After: " (Joh. 4:3-6)."},
+		},
+		{
+			name:     "cuts long context at a word",
+			input:    Snippet{Before: long, Marked: "marked", After: ", " + long + "end."},
+			expected: Snippet{Before: "…" + strings.TrimSpace(strings.Repeat("word ", 15)) + " ", Marked: "marked", After: ", " + strings.TrimSpace(strings.Repeat("word ", 15)) + "…"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, Shorten(tt.input))
+		})
 	}
 }

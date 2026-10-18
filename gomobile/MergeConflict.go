@@ -161,11 +161,17 @@ func (mcw *MergeConflictsWrapper) SolveConflict(key string, side string) error {
 	return nil
 }
 
+// DownloadListener is told how many bytes of a publication are downloaded,
+// out of total, which is -1 if unknown
+type DownloadListener interface {
+	Progress(downloaded int64, total int64)
+}
+
 // MarkingSnippets returns the text of the paragraphs that the marking on the
-// given side of a conflict covers, as a JSON array of objects with the fields
-// before, marked, and after. If the text of the publication is not cached in
-// cacheDir yet, it is downloaded from jw.org.
-func (mcw *MergeConflictsWrapper) MarkingSnippets(key string, side string, cacheDir string) (string, error) {
+// given side of a conflict covers, as a JSON array of publication.Snippet. If
+// the text of the publication is not cached in cacheDir yet, it is downloaded
+// from jw.org, and listener, if not nil, is told the progress.
+func (mcw *MergeConflictsWrapper) MarkingSnippets(key string, side string, cacheDir string, listener DownloadListener) (string, error) {
 	conflict, exists := mcw.conflicts[key]
 	if !exists {
 		return "", fmt.Errorf("conflict with key %s does not exist", key)
@@ -183,7 +189,11 @@ func (mcw *MergeConflictsWrapper) MarkingSnippets(key string, side string, cache
 	snippets := []publication.Snippet{}
 	if marking, ok := mdl.(*model.UserMarkBlockRange); ok && mcw.DBWrapper != nil {
 		location := marking.RelatedEntries(mcw.DBWrapper.merged).Location
-		result, err := publication.MarkingSnippets(context.Background(), cacheDir, location, marking.BlockRanges)
+		var progress func(int64, int64)
+		if listener != nil {
+			progress = listener.Progress
+		}
+		result, err := publication.MarkingSnippets(context.Background(), cacheDir, location, marking.BlockRanges, progress)
 		if err != nil {
 			return "", err
 		}

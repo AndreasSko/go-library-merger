@@ -69,14 +69,16 @@ var token = func() *regexp.Regexp {
 // MarkingSnippets returns the text of the paragraphs that a marking covers.
 // Paragraphs that are not available are left out. The text comes from the
 // EPUB of the publication on jw.org. Only the paragraph text is kept in
-// cacheDir, so each publication is downloaded once.
-func MarkingSnippets(ctx context.Context, cacheDir string, location *model.Location, blockRanges []*model.BlockRange) ([]Snippet, error) {
+// cacheDir, so each publication is downloaded once. While it downloads,
+// progress, if not nil, is told how many bytes are downloaded out of total,
+// which is -1 if unknown.
+func MarkingSnippets(ctx context.Context, cacheDir string, location *model.Location, blockRanges []*model.BlockRange, progress func(downloaded int64, total int64)) ([]Snippet, error) {
 	path, ok := cachePath(cacheDir, location, blockRanges)
 	if !ok {
 		return nil, nil
 	}
 	docs, err, _ := lookups.Do(path, func() (any, error) {
-		return lookupDocuments(ctx, path, location)
+		return lookupDocuments(ctx, path, location, progress)
 	})
 	if err != nil {
 		return nil, err
@@ -129,7 +131,7 @@ var lookups singleflight.Group
 
 // lookupDocuments returns the documents of a publication from the cache file
 // at path, or downloads them first
-func lookupDocuments(ctx context.Context, path string, location *model.Location) (documents, error) {
+func lookupDocuments(ctx context.Context, path string, location *model.Location, progress func(int64, int64)) (documents, error) {
 	docs := documents{}
 	// A cache file that cannot be read is replaced by a new download
 	if data, err := os.ReadFile(path); err == nil && json.Unmarshal(data, &docs) == nil {
@@ -140,7 +142,7 @@ func lookupDocuments(ctx context.Context, path string, location *model.Location)
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create cache directory: %w", err)
 	}
-	epub, err := downloadEPUB(ctx, cacheDir, location)
+	epub, err := downloadEPUB(ctx, cacheDir, location, progress)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +168,7 @@ func lookupDocuments(ctx context.Context, path string, location *model.Location)
 
 // downloadEPUB downloads the EPUB of the publication of location into dir and
 // returns its path
-func downloadEPUB(ctx context.Context, dir string, location *model.Location) (string, error) {
+func downloadEPUB(ctx context.Context, dir string, location *model.Location, progress func(int64, int64)) (string, error) {
 	keySymbol := location.KeySymbol.String
 	lang := model.MepsLanguageSymbol(int(location.MepsLanguage.Int32))
 	issueTagNumber := location.IssueTagNumber
@@ -192,12 +194,12 @@ func downloadEPUB(ctx context.Context, dir string, location *model.Location) (st
 			} `json:"EPUB"`
 		} `json:"files"`
 	}
-	body, err := get(ctx, MediaLinksURL+"?"+query.Encode())
+	resp, err := get(ctx, MediaLinksURL+"?"+query.Encode())
 	if err != nil {
 		return "", err
 	}
-	err = json.NewDecoder(body).Decode(&links)
-	if err = errors.Join(err, body.Close()); err != nil {
+	err = json.NewDecoder(resp.Body).Decode(&links)
+	if err = errors.Join(err, resp.Body.Close()); err != nil {
 		return "", fmt.Errorf("failed to read links of publication %s: %w", keySymbol, err)
 	}
 	files := links.Files[lang].EPUB
@@ -209,8 +211,12 @@ func downloadEPUB(ctx context.Context, dir string, location *model.Location) (st
 	if err != nil {
 		return "", err
 	}
-	path, err := writeTemp(dir, "*.epub", epub)
-	if err = errors.Join(err, epub.Close()); err != nil {
+	var body io.Reader = epub.Body
+	if progress != nil {
+		body = &progressReader{r: epub.Body, total: epub.ContentLength, progress: progress}
+	}
+	path, err := writeTemp(dir, "*.epub", body)
+	if err = errors.Join(err, epub.Body.Close()); err != nil {
 		if path != "" {
 			_ = os.Remove(path)
 		}
@@ -233,7 +239,26 @@ func writeTemp(dir string, pattern string, r io.Reader) (string, error) {
 	return f.Name(), nil
 }
 
-func get(ctx context.Context, url string) (io.ReadCloser, error) {
+// progressReader tells progress how much of r is read, at most every 100 ms
+type progressReader struct {
+	r        io.Reader
+	read     int64
+	total    int64
+	reported time.Time
+	progress func(int64, int64)
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	p.read += int64(n)
+	if err == io.EOF || time.Since(p.reported) > 100*time.Millisecond {
+		p.reported = time.Now()
+		p.progress(p.read, p.total)
+	}
+	return n, err
+}
+
+func get(ctx context.Context, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -245,7 +270,7 @@ func get(ctx context.Context, url string) (io.ReadCloser, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.Join(fmt.Errorf("request to %s failed with status %s", url, resp.Status), resp.Body.Close())
 	}
-	return resp.Body, nil
+	return resp, nil
 }
 
 var documentFile = regexp.MustCompile(`^OEBPS/(\d+)\.xhtml$`)

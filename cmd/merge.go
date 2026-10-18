@@ -453,7 +453,7 @@ func markingText(mdl model.Model, db *model.Database, out io.Writer) (string, er
 			return "", err
 		}
 	}
-	snippets, err := publication.MarkingSnippets(context.Background(), snippetCacheDir, location, marking.BlockRanges)
+	snippets, err := publication.MarkingSnippets(context.Background(), snippetCacheDir, location, marking.BlockRanges, nil)
 	if err != nil {
 		snippetFailures[key] = true
 		return "", nil

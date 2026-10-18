@@ -70,13 +70,18 @@ func TestMarkingSnippets(t *testing.T) {
 	cacheDir := t.TempDir()
 	assert.True(t, NeedsDownload(cacheDir, location, blockRanges))
 	assert.False(t, NeedsDownload(cacheDir, location, blockRanges[2:]), "Bible verses are not looked up")
-	snippets, err := MarkingSnippets(context.Background(), cacheDir, location, blockRanges)
+	var downloaded, total int64
+	snippets, err := MarkingSnippets(context.Background(), cacheDir, location, blockRanges, func(d int64, t int64) {
+		downloaded, total = d, t
+	})
 	require.NoError(t, err)
 	assert.Equal(t, expected, snippets)
+	assert.Equal(t, int64(epub.Len()), downloaded)
+	assert.Equal(t, int64(epub.Len()), total)
 	assert.False(t, NeedsDownload(cacheDir, location, blockRanges))
 
 	server.Close()
-	snippets, err = MarkingSnippets(context.Background(), cacheDir, location, blockRanges)
+	snippets, err = MarkingSnippets(context.Background(), cacheDir, location, blockRanges, nil)
 	require.NoError(t, err)
 	assert.Equal(t, expected, snippets, "should be read from the cache")
 }

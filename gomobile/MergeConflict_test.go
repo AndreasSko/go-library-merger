@@ -248,14 +248,14 @@ func TestMergeConflictsWrapper_MarkingSnippets(t *testing.T) {
 		},
 	}
 
-	result, err := mcw.MarkingSnippets("1", "rightSide", cacheDir)
+	result, err := mcw.MarkingSnippets("1", "rightSide", cacheDir, nil)
 	assert.NoError(t, err)
 	assert.JSONEq(t, `[{"before":"Jehovah’s people read ","marked":"Joel 2:7","after":".","number":1}]`, result)
 
-	result, err = mcw.MarkingSnippets("2", "leftSide", cacheDir)
+	result, err = mcw.MarkingSnippets("2", "leftSide", cacheDir, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, "[]", result)
 
-	_, err = mcw.MarkingSnippets("1", "wrongSide", cacheDir)
+	_, err = mcw.MarkingSnippets("1", "wrongSide", cacheDir, nil)
 	assert.EqualError(t, err, "side wrongSide is not valid")
 }

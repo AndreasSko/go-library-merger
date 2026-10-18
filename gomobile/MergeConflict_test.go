@@ -218,7 +218,7 @@ func TestMergeConflictsWrapper_SolveConflict(t *testing.T) {
 
 func TestMergeConflictsWrapper_MarkingSnippets(t *testing.T) {
 	cacheDir := t.TempDir()
-	cached := `{"2020360":{"2":"Jehovah’s people read Joel 2:7."}}`
+	cached := `{"2020360":{"2":{"text":"Jehovah’s people read Joel 2:7.","number":1}}}`
 	assert.NoError(t, os.WriteFile(filepath.Join(cacheDir, "w_E_20200400.json"), []byte(cached), 0o644))
 
 	marking := func(start, end int32) *model.UserMarkBlockRange {
@@ -250,7 +250,7 @@ func TestMergeConflictsWrapper_MarkingSnippets(t *testing.T) {
 
 	result, err := mcw.MarkingSnippets("1", "rightSide", cacheDir)
 	assert.NoError(t, err)
-	assert.JSONEq(t, `[{"before":"Jehovah’s people read ","marked":"Joel 2:7","after":"."}]`, result)
+	assert.JSONEq(t, `[{"before":"Jehovah’s people read ","marked":"Joel 2:7","after":".","number":1}]`, result)
 
 	result, err = mcw.MarkingSnippets("2", "leftSide", cacheDir)
 	assert.NoError(t, err)

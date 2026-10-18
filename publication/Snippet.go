@@ -37,10 +37,22 @@ type Snippet struct {
 	Before string `json:"before"`
 	Marked string `json:"marked"`
 	After  string `json:"after"`
+	// Number is the paragraph number shown in the publication, or 0 if it
+	// has none
+	Number int `json:"number,omitempty"`
+	// Heading is the subheading the paragraph belongs to
+	Heading string `json:"heading,omitempty"`
 }
 
-// documents maps a document ID to the text of its paragraphs
-type documents map[int64]map[int]string
+// paragraph is the text of a paragraph and where it is in its document
+type paragraph struct {
+	Text    string `json:"text"`
+	Number  int    `json:"number,omitempty"`
+	Heading string `json:"heading,omitempty"`
+}
+
+// documents maps a document ID to its paragraphs
+type documents map[int64]map[int]paragraph
 
 var keySymbolPattern = regexp.MustCompile(`^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$`)
 
@@ -75,8 +87,9 @@ func MarkingSnippets(ctx context.Context, cacheDir string, location *model.Locat
 		if br.BlockType != 1 || !br.StartToken.Valid || !br.EndToken.Valid {
 			continue
 		}
-		text := docs.(documents)[location.DocumentID.Int64][br.Identifier]
-		if snippet, ok := markTokens(text, int(br.StartToken.Int32), int(br.EndToken.Int32)); ok {
+		p := docs.(documents)[location.DocumentID.Int64][br.Identifier]
+		if snippet, ok := markTokens(p.Text, int(br.StartToken.Int32), int(br.EndToken.Int32)); ok {
+			snippet.Number, snippet.Heading = p.Number, p.Heading
 			snippets = append(snippets, snippet)
 		}
 	}
@@ -270,12 +283,15 @@ func readEPUB(path string) (docs documents, resultErr error) {
 
 // readParagraphs reads the text of all elements with a data-pid, which is
 // the paragraph ID JW Library uses. Paragraph numbers and footnote markers
-// are left out, as JW Library does not count them as tokens.
-func readParagraphs(r io.Reader) (map[int]string, error) {
-	paragraphs := map[int]string{}
+// are left out of the text, as JW Library does not count them as tokens.
+func readParagraphs(r io.Reader) (map[int]paragraph, error) {
+	paragraphs := map[int]paragraph{}
 	z := html.NewTokenizer(r)
 	pid := -1
 	var text strings.Builder
+	var current paragraph
+	isHeading := false
+	heading := ""
 	var skipped []bool // per open element inside the paragraph
 	skipping := 0
 	for {
@@ -294,6 +310,15 @@ func readParagraphs(r io.Reader) (map[int]string, error) {
 				}
 				pid = id
 				text.Reset()
+				// h1 is the title of the document, the others are subheadings
+				isHeading = slices.Contains([]string{"h2", "h3", "h4", "h5", "h6"}, tag.Data)
+				current = paragraph{}
+				if !isHeading {
+					current.Heading = heading
+				}
+			}
+			if number, err := strconv.Atoi(attr(tag, "data-pnum")); err == nil {
+				current.Number = number
 			}
 			skip := tag.Data == "sup" || tag.Data == "a" && strings.HasPrefix(attr(tag, "href"), "#footnote")
 			if skip {
@@ -310,7 +335,11 @@ func readParagraphs(r io.Reader) (map[int]string, error) {
 			skipped = skipped[:len(skipped)-1]
 			if len(skipped) == 0 {
 				// Drop soft hyphens, so they do not split words into tokens
-				paragraphs[pid] = strings.TrimSpace(strings.ReplaceAll(text.String(), "\u00ad", ""))
+				current.Text = strings.TrimSpace(strings.ReplaceAll(text.String(), "\u00ad", ""))
+				paragraphs[pid] = current
+				if isHeading {
+					heading = current.Text
+				}
 				pid = -1
 			}
 		case html.TextToken:
@@ -382,5 +411,6 @@ func Shorten(s Snippet) Snippet {
 		}
 		after = strings.TrimRight(after, ",;:–— ") + "…"
 	}
-	return Snippet{Before: before, Marked: s.Marked, After: after}
+	s.Before, s.After = before, after
+	return s
 }

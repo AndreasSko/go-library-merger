@@ -24,7 +24,8 @@ func TestMarkingSnippets(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.Write([]byte(`<html><body>
 <h1 id="p1" data-pid="1">Title</h1>
-<p id="p2" data-pid="2"><strong><sup>1 </sup></strong>Jehovah’s people read Joel&#160;2:7. They lis&#173;tened.<a href="#footnote1">*</a></p>
+<h2 id="p4" data-pid="4">A Subheading</h2>
+<p id="p2" data-pid="2"><span class="parNum" data-pnum="1"><strong><sup>1</sup></strong></span> Jehovah’s people read Joel&#160;2:7. They lis&#173;tened.<a href="#footnote1">*</a></p>
 </body></html>`))
 	require.NoError(t, err)
 	require.NoError(t, zw.Close())
@@ -59,9 +60,11 @@ func TestMarkingSnippets(t *testing.T) {
 		{BlockType: 2, Identifier: 2, StartToken: sql.NullInt32{Int32: 0, Valid: true}, EndToken: sql.NullInt32{Int32: 1, Valid: true}},
 	}
 	expected := []Snippet{{
-		Before: "Jehovah’s people read ",
-		Marked: "Joel\u00a02:7.",
-		After:  " They listened.",
+		Before:  "Jehovah’s people read ",
+		Marked:  "Joel\u00a02:7.",
+		After:   " They listened.",
+		Number:  1,
+		Heading: "A Subheading",
 	}}
 
 	cacheDir := t.TempDir()

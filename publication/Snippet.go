@@ -28,6 +28,10 @@ import (
 // a publication
 var MediaLinksURL = "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS"
 
+// errNoEPUB tells that jw.org has no EPUB of a publication, like for the
+// Study Bible or old issues
+var errNoEPUB = errors.New("no EPUB found")
+
 // client limits the time of a request, so a stalled download cannot block
 // a conflict view
 var client = &http.Client{Timeout: 2 * time.Minute}
@@ -67,8 +71,8 @@ var token = func() *regexp.Regexp {
 }()
 
 // MarkingSnippets returns the text of the paragraphs that a marking covers.
-// Paragraphs that are not available are left out. The text comes from the
-// EPUB of the publication on jw.org. Only the paragraph text is kept in
+// Paragraphs that are not available are left out, and so are all of them if
+// jw.org has no EPUB of the publication. The text comes from the EPUB of the publication on jw.org. Only the paragraph text is kept in
 // cacheDir, so each publication is downloaded once. While it downloads,
 // progress, if not nil, is told how many bytes are downloaded out of total,
 // which is -1 if unknown.
@@ -143,12 +147,17 @@ func lookupDocuments(ctx context.Context, path string, location *model.Location,
 		return nil, fmt.Errorf("failed to create cache directory: %w", err)
 	}
 	epub, err := downloadEPUB(ctx, cacheDir, location, progress)
-	if err != nil {
+	switch {
+	case errors.Is(err, errNoEPUB):
+		// The empty cache file keeps the publication from being asked for
+		// again
+	case err != nil:
 		return nil, err
-	}
-	defer func() { _ = os.Remove(epub) }()
-	if docs, err = readEPUB(epub); err != nil {
-		return nil, err
+	default:
+		defer func() { _ = os.Remove(epub) }()
+		if docs, err = readEPUB(epub); err != nil {
+			return nil, err
+		}
 	}
 
 	data, err := json.Marshal(docs)
@@ -195,7 +204,12 @@ func downloadEPUB(ctx context.Context, dir string, location *model.Location, pro
 		} `json:"files"`
 	}
 	resp, err := get(ctx, MediaLinksURL+"?"+query.Encode())
-	if err != nil {
+	// The API answers 404 for a publication without downloads and 400 for an
+	// unknown one
+	var status statusError
+	if errors.As(err, &status) && (status == http.StatusNotFound || status == http.StatusBadRequest) {
+		return "", fmt.Errorf("%w for publication %s", errNoEPUB, keySymbol)
+	} else if err != nil {
 		return "", err
 	}
 	err = json.NewDecoder(resp.Body).Decode(&links)
@@ -204,7 +218,7 @@ func downloadEPUB(ctx context.Context, dir string, location *model.Location, pro
 	}
 	files := links.Files[lang].EPUB
 	if len(files) == 0 {
-		return "", fmt.Errorf("no EPUB found for publication %s", keySymbol)
+		return "", fmt.Errorf("%w for publication %s", errNoEPUB, keySymbol)
 	}
 
 	epub, err := get(ctx, files[0].File.URL)
@@ -268,9 +282,16 @@ func get(ctx context.Context, url string) (*http.Response, error) {
 		return nil, fmt.Errorf("failed to request %s: %w", url, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, errors.Join(fmt.Errorf("request to %s failed with status %s", url, resp.Status), resp.Body.Close())
+		return nil, errors.Join(fmt.Errorf("request to %s failed: %w", url, statusError(resp.StatusCode)), resp.Body.Close())
 	}
 	return resp, nil
+}
+
+// statusError is the HTTP status code of a failed request
+type statusError int
+
+func (s statusError) Error() string {
+	return fmt.Sprintf("status %d %s", int(s), http.StatusText(int(s)))
 }
 
 var documentFile = regexp.MustCompile(`^OEBPS/(\d+)\.xhtml$`)

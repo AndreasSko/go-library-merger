@@ -86,6 +86,37 @@ func TestMarkingSnippets(t *testing.T) {
 	assert.Equal(t, expected, snippets, "should be read from the cache")
 }
 
+func TestMarkingSnippets_noEPUB(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(server.Close)
+	oldURL := MediaLinksURL
+	t.Cleanup(func() { MediaLinksURL = oldURL })
+	MediaLinksURL = server.URL
+
+	location := &model.Location{
+		DocumentID:     sql.NullInt64{Int64: 1990001, Valid: true},
+		IssueTagNumber: 19900100,
+		KeySymbol:      sql.NullString{String: "w", Valid: true},
+		MepsLanguage:   sql.NullInt32{Int32: 2, Valid: true},
+	}
+	blockRanges := []*model.BlockRange{
+		{BlockType: 1, Identifier: 2, StartToken: sql.NullInt32{Int32: 0, Valid: true}, EndToken: sql.NullInt32{Int32: 1, Valid: true}},
+	}
+	cacheDir := t.TempDir()
+	snippets, err := MarkingSnippets(context.Background(), cacheDir, location, blockRanges, nil)
+	assert.NoError(t, err, "a missing EPUB is not an error")
+	assert.Empty(t, snippets)
+	assert.False(t, NeedsDownload(cacheDir, location, blockRanges), "a missing EPUB is not asked for again")
+
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	_, err = MarkingSnippets(context.Background(), t.TempDir(), location, blockRanges, nil)
+	assert.Error(t, err)
+}
+
 func Test_markTokens(t *testing.T) {
 	text := "In 33\u00a0C.E., Jehovah’s “people”\u200b—Acts 2:41."
 	tests := []struct {

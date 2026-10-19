@@ -69,7 +69,7 @@ func TestMarkingSnippets(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	assert.True(t, NeedsDownload(cacheDir, location, blockRanges))
-	assert.False(t, NeedsDownload(cacheDir, location, blockRanges[2:]), "Bible verses are not looked up")
+	assert.False(t, NeedsDownload(cacheDir, location, blockRanges[2:]), "a Bible verse is not in a publication")
 	var downloaded, total int64
 	snippets, err := MarkingSnippets(context.Background(), cacheDir, location, blockRanges, func(d int64, t int64) {
 		downloaded, total = d, t
@@ -84,6 +84,60 @@ func TestMarkingSnippets(t *testing.T) {
 	snippets, err = MarkingSnippets(context.Background(), cacheDir, location, blockRanges, nil)
 	require.NoError(t, err)
 	assert.Equal(t, expected, snippets, "should be read from the cache")
+}
+
+func TestMarkingSnippets_bible(t *testing.T) {
+	var epub bytes.Buffer
+	zw := zip.NewWriter(&epub)
+	f, err := zw.Create("OEBPS/1001061123-split23.xhtml")
+	require.NoError(t, err)
+	_, err = f.Write([]byte(`<html><body>
+<p class="w_navigation"><a href="biblebooknav.xhtml">Psalms</a> <a href="biblechapternav19.xhtml">23</a> : <a href="bibleversenav19_23.xhtml">1 - 6</a></p>
+<p id="p1" data-pid="1" class="p1 sw">A melody of David.</p>
+<p id="p2" data-pid="2" class="p2 sl"><span id="chapter23"></span><span id="chapter23_verse1"></span><span class="w_ch"><strong>23</strong> </span>Jehovah is my Shepherd.</p>
+<p id="p3" data-pid="3" class="p3 sz">I will lack nothing.</p>
+<p id="p4" data-pid="4" class="p4 ss">ב (Beth)</p>
+<p id="p5" data-pid="5" class="p5 sl"><span id="chapter23_verse2"></span> <strong><sup>2</sup></strong> He makes me lie down<a epub:type="noteref" href="#footnote1">*</a>.</p>
+<div class="groupFootnote"><aside epub:type="footnote"><p>Or “rest.”</p></aside></div>
+</body></html>`))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/links":
+			assert.Equal(t, "nwt", r.URL.Query().Get("pub"), "the Study Bible has no EPUB")
+			_, err := fmt.Fprintf(w, `{"files":{"E":{"EPUB":[{"file":{"url":"%s/nwt_E.epub"}}]}}}`, server.URL)
+			assert.NoError(t, err)
+		case "/nwt_E.epub":
+			_, err := w.Write(epub.Bytes())
+			assert.NoError(t, err)
+		}
+	}))
+	t.Cleanup(server.Close)
+	oldURL := MediaLinksURL
+	t.Cleanup(func() { MediaLinksURL = oldURL })
+	MediaLinksURL = server.URL + "/links"
+
+	location := &model.Location{
+		BookNumber:    sql.NullInt32{Int32: 19, Valid: true},
+		ChapterNumber: sql.NullInt32{Int32: 23, Valid: true},
+		KeySymbol:     sql.NullString{String: "nwtsty", Valid: true},
+		MepsLanguage:  sql.NullInt32{Int32: 0, Valid: true},
+	}
+	blockRanges := []*model.BlockRange{
+		{BlockType: 2, Identifier: 0, StartToken: sql.NullInt32{Int32: 1, Valid: true}, EndToken: sql.NullInt32{Int32: 1, Valid: true}},
+		{BlockType: 2, Identifier: 1, StartToken: sql.NullInt32{Int32: 3, Valid: true}, EndToken: sql.NullInt32{Int32: 6, Valid: true}},
+		{BlockType: 2, Identifier: 2, StartToken: sql.NullInt32{Int32: 4, Valid: true}, EndToken: sql.NullInt32{Int32: 4, Valid: true}},
+	}
+	snippets, err := MarkingSnippets(context.Background(), t.TempDir(), location, blockRanges, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []Snippet{
+		{Before: "A ", Marked: "melody", After: " of David.", Verse: 0},
+		{Before: "Jehovah is my ", Marked: "Shepherd. I will", After: " lack nothing.", Verse: 1},
+		{Before: "He makes me lie ", Marked: "down", After: ".", Verse: 2},
+	}, snippets)
 }
 
 func TestMarkingSnippets_noEPUB(t *testing.T) {

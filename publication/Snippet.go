@@ -46,6 +46,8 @@ type Snippet struct {
 	Number int `json:"number,omitempty"`
 	// Heading is the subheading the paragraph belongs to
 	Heading string `json:"heading,omitempty"`
+	// Verse is the number of a Bible verse, or 0 for a paragraph
+	Verse int `json:"verse,omitempty"`
 }
 
 // paragraph is the text of a paragraph and where it is in its document
@@ -55,8 +57,61 @@ type paragraph struct {
 	Heading string `json:"heading,omitempty"`
 }
 
-// documents maps a document ID to its paragraphs
+// documents maps a document ID to its paragraphs. A Bible chapter is a
+// document of its verses, see bibleChapter.
 type documents map[int64]map[int]paragraph
+
+// bibleChapter returns the document ID of a Bible chapter. The MEPS document
+// IDs of a Bible are its books, so chapters get IDs of their own.
+func bibleChapter(book int, chapter int) int64 {
+	return int64(book*1000 + chapter)
+}
+
+// source is the publication with the text of a marking, and the document
+// in it
+type source struct {
+	keySymbol      string
+	lang           string
+	issueTagNumber int
+	document       int64
+	// blockType is the type of the blocks of a marking that are in document
+	blockType int
+}
+
+// sourceOf returns the source of the text of a marking. It returns false if
+// the marking has no text that can be looked up.
+func sourceOf(location *model.Location, blockRanges []*model.BlockRange) (source, bool) {
+	if location == nil || !location.MepsLanguage.Valid {
+		return source{}, false
+	}
+	src := source{
+		keySymbol:      location.KeySymbol.String,
+		lang:           model.MepsLanguageSymbol(int(location.MepsLanguage.Int32)),
+		issueTagNumber: location.IssueTagNumber,
+	}
+	switch {
+	case location.BookNumber.Valid && location.ChapterNumber.Valid:
+		// jw.org has no EPUB of the Study Bible, but the regular edition has
+		// the same text
+		if src.keySymbol == "nwtsty" {
+			src.keySymbol = "nwt"
+		}
+		src.document = bibleChapter(int(location.BookNumber.Int32), int(location.ChapterNumber.Int32))
+		// Block type 2 is a Bible verse
+		src.blockType = 2
+	case location.DocumentID.Valid:
+		src.document = location.DocumentID.Int64
+		// Block type 1 is a paragraph of a publication
+		src.blockType = 1
+	default:
+		return source{}, false
+	}
+	hasBlock := slices.ContainsFunc(blockRanges, func(br *model.BlockRange) bool { return br.BlockType == src.blockType })
+	if !hasBlock || src.lang == "" || !keySymbolPattern.MatchString(src.keySymbol) {
+		return source{}, false
+	}
+	return src, true
+}
 
 var keySymbolPattern = regexp.MustCompile(`^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$`)
 
@@ -70,19 +125,21 @@ var token = func() *regexp.Regexp {
 	return regexp.MustCompile(word + `(?:` + other + word + `)*|` + other)
 }()
 
-// MarkingSnippets returns the text of the paragraphs that a marking covers.
-// Paragraphs that are not available are left out, and so are all of them if
-// jw.org has no EPUB of the publication. The text comes from the EPUB of the publication on jw.org. Only the paragraph text is kept in
-// cacheDir, so each publication is downloaded once. While it downloads,
+// MarkingSnippets returns the text of the paragraphs or Bible verses that a
+// marking covers. Those that are not available are left out, and so are all
+// of them if jw.org has no EPUB of the publication. The text comes from the
+// EPUB of the publication on jw.org. Only the text is kept in cacheDir, so
+// each publication is downloaded once. While it downloads,
 // progress, if not nil, is told how many bytes are downloaded out of total,
 // which is -1 if unknown.
 func MarkingSnippets(ctx context.Context, cacheDir string, location *model.Location, blockRanges []*model.BlockRange, progress func(downloaded int64, total int64)) ([]Snippet, error) {
-	path, ok := cachePath(cacheDir, location, blockRanges)
+	src, ok := sourceOf(location, blockRanges)
 	if !ok {
 		return nil, nil
 	}
+	path := cachePath(cacheDir, src)
 	docs, err, _ := lookups.Do(path, func() (any, error) {
-		return lookupDocuments(ctx, path, location, progress)
+		return lookupDocuments(ctx, path, src, progress)
 	})
 	if err != nil {
 		return nil, err
@@ -90,12 +147,15 @@ func MarkingSnippets(ctx context.Context, cacheDir string, location *model.Locat
 
 	var snippets []Snippet
 	for _, br := range blockRanges {
-		if br.BlockType != 1 || !br.StartToken.Valid || !br.EndToken.Valid {
+		if br.BlockType != src.blockType || !br.StartToken.Valid || !br.EndToken.Valid {
 			continue
 		}
-		p := docs.(documents)[location.DocumentID.Int64][br.Identifier]
+		p := docs.(documents)[src.document][br.Identifier]
 		if snippet, ok := markTokens(p.Text, int(br.StartToken.Int32), int(br.EndToken.Int32)); ok {
 			snippet.Number, snippet.Heading = p.Number, p.Heading
+			if src.blockType == 2 {
+				snippet.Verse = br.Identifier
+			}
 			snippets = append(snippets, snippet)
 		}
 	}
@@ -105,28 +165,18 @@ func MarkingSnippets(ctx context.Context, cacheDir string, location *model.Locat
 // NeedsDownload reports whether MarkingSnippets has to download the
 // publication of a marking first, because its text is not in cacheDir yet.
 func NeedsDownload(cacheDir string, location *model.Location, blockRanges []*model.BlockRange) bool {
-	path, ok := cachePath(cacheDir, location, blockRanges)
+	src, ok := sourceOf(location, blockRanges)
 	if !ok {
 		return false
 	}
-	_, err := os.Stat(path)
+	_, err := os.Stat(cachePath(cacheDir, src))
 	return err != nil
 }
 
-// cachePath returns the file in cacheDir with the text of the publication of
-// a marking. It returns false if the marking has no paragraph of a
-// publication that can be looked up.
-func cachePath(cacheDir string, location *model.Location, blockRanges []*model.BlockRange) (string, bool) {
-	// Block type 1 is a paragraph of a publication, unlike a Bible verse
-	hasParagraph := slices.ContainsFunc(blockRanges, func(br *model.BlockRange) bool { return br.BlockType == 1 })
-	if !hasParagraph || location == nil || !location.DocumentID.Valid || !location.MepsLanguage.Valid {
-		return "", false
-	}
-	lang := model.MepsLanguageSymbol(int(location.MepsLanguage.Int32))
-	if lang == "" || !keySymbolPattern.MatchString(location.KeySymbol.String) {
-		return "", false
-	}
-	return filepath.Join(cacheDir, fmt.Sprintf("%s_%s_%d.json", location.KeySymbol.String, lang, location.IssueTagNumber)), true
+// cachePath returns the file in cacheDir with the text of the publication
+// of src
+func cachePath(cacheDir string, src source) string {
+	return filepath.Join(cacheDir, fmt.Sprintf("%s_%s_%d.json", src.keySymbol, src.lang, src.issueTagNumber))
 }
 
 // lookups makes concurrent lookups of the same publication, like for both
@@ -135,7 +185,7 @@ var lookups singleflight.Group
 
 // lookupDocuments returns the documents of a publication from the cache file
 // at path, or downloads them first
-func lookupDocuments(ctx context.Context, path string, location *model.Location, progress func(int64, int64)) (documents, error) {
+func lookupDocuments(ctx context.Context, path string, src source, progress func(int64, int64)) (documents, error) {
 	docs := documents{}
 	// A cache file that cannot be read is replaced by a new download
 	if data, err := os.ReadFile(path); err == nil && json.Unmarshal(data, &docs) == nil {
@@ -146,7 +196,7 @@ func lookupDocuments(ctx context.Context, path string, location *model.Location,
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create cache directory: %w", err)
 	}
-	epub, err := downloadEPUB(ctx, cacheDir, location, progress)
+	epub, err := downloadEPUB(ctx, cacheDir, src, progress)
 	switch {
 	case errors.Is(err, errNoEPUB):
 		// The empty cache file keeps the publication from being asked for
@@ -175,12 +225,10 @@ func lookupDocuments(ctx context.Context, path string, location *model.Location,
 	return docs, nil
 }
 
-// downloadEPUB downloads the EPUB of the publication of location into dir and
+// downloadEPUB downloads the EPUB of the publication of src into dir and
 // returns its path
-func downloadEPUB(ctx context.Context, dir string, location *model.Location, progress func(int64, int64)) (string, error) {
-	keySymbol := location.KeySymbol.String
-	lang := model.MepsLanguageSymbol(int(location.MepsLanguage.Int32))
-	issueTagNumber := location.IssueTagNumber
+func downloadEPUB(ctx context.Context, dir string, src source, progress func(int64, int64)) (string, error) {
+	keySymbol, lang, issueTagNumber := src.keySymbol, src.lang, src.issueTagNumber
 	query := url.Values{
 		"pub":         {keySymbol},
 		"langwritten": {lang},
@@ -294,10 +342,15 @@ func (s statusError) Error() string {
 	return fmt.Sprintf("status %d %s", int(s), http.StatusText(int(s)))
 }
 
-var documentFile = regexp.MustCompile(`^OEBPS/(\d+)\.xhtml$`)
+var (
+	documentFile = regexp.MustCompile(`^OEBPS/(\d+)\.xhtml$`)
+	// A Bible chapter can also be in a file like 1001061148-split20.xhtml
+	chapterFile = regexp.MustCompile(`^OEBPS/[\w-]+\.xhtml$`)
+)
 
-// readEPUB reads the paragraphs of all documents in an EPUB. Each document is
-// a file named after its MEPS document ID.
+// readEPUB reads the paragraphs of all documents in an EPUB, and the verses
+// of all Bible chapters. Each document is a file named after its MEPS
+// document ID.
 func readEPUB(path string) (docs documents, resultErr error) {
 	r, err := zip.OpenReader(path)
 	if err != nil {
@@ -307,6 +360,28 @@ func readEPUB(path string) (docs documents, resultErr error) {
 
 	docs = documents{}
 	for _, f := range r.File {
+		if !chapterFile.MatchString(f.Name) {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("failed to open %s: %w", f.Name, err)
+		}
+		data, err := io.ReadAll(rc)
+		if err = errors.Join(err, rc.Close()); err != nil {
+			return nil, fmt.Errorf("failed to read %s: %w", f.Name, err)
+		}
+
+		if bytes.Contains(data, []byte("bibleversenav")) {
+			book, chapter, verses, err := readVerses(bytes.NewReader(data))
+			if err != nil {
+				return nil, fmt.Errorf("failed to read %s: %w", f.Name, err)
+			}
+			if book > 0 && chapter > 0 {
+				docs[bibleChapter(book, chapter)] = verses
+				continue
+			}
+		}
 		match := documentFile.FindStringSubmatch(f.Name)
 		if match == nil {
 			continue
@@ -315,17 +390,93 @@ func readEPUB(path string) (docs documents, resultErr error) {
 		if err != nil {
 			return nil, err
 		}
-		rc, err := f.Open()
-		if err != nil {
-			return nil, fmt.Errorf("failed to open %s: %w", f.Name, err)
-		}
-		docs[id], err = readParagraphs(rc)
-		if err = errors.Join(err, rc.Close()); err != nil {
+		if docs[id], err = readParagraphs(bytes.NewReader(data)); err != nil {
 			return nil, fmt.Errorf("failed to read %s: %w", f.Name, err)
 		}
 	}
 	return docs, nil
 }
+
+var (
+	verseNav    = regexp.MustCompile(`^bibleversenav(\d+)_\d+\.xhtml$`)
+	verseAnchor = regexp.MustCompile(`^chapter(\d+)_verse(\d+)$`)
+	// Elements of these classes are not part of a verse, like a letter
+	// heading of Psalm 119
+	notVerse = []string{"w_navigation", "groupFootnote", "w_ch", "ss", "sd"}
+)
+
+// readVerses reads the verses of a Bible chapter. Its book comes from the
+// link to the verse list of the chapter, like bibleversenav44_20.xhtml. A verse starts at an anchor like
+// chapter20_verse35 and ends at the next one. The superscription of a psalm
+// is verse 0, like on wol.jw.org. Verse and chapter numbers and
+// footnote markers are left out of the text, as JW Library does not count
+// them as tokens. It returns 0 for book and chapter if r is not a chapter.
+func readVerses(r io.Reader) (book int, chapter int, verses map[int]paragraph, err error) {
+	z := html.NewTokenizer(r)
+	texts := map[int]*strings.Builder{}
+	verse := -1
+	paragraphs := 0
+	var skipped []bool // per open element
+	skipping := 0
+	for {
+		switch z.Next() {
+		case html.ErrorToken:
+			if z.Err() != io.EOF {
+				return 0, 0, nil, z.Err()
+			}
+			verses = map[int]paragraph{}
+			for v, text := range texts {
+				verses[v] = paragraph{Text: strings.TrimSpace(spaces.ReplaceAllString(strings.ReplaceAll(text.String(), "\u00ad", ""), " "))}
+			}
+			return book, chapter, verses, nil
+		case html.StartTagToken:
+			tag := z.Token()
+			if match := verseNav.FindStringSubmatch(attr(tag, "href")); match != nil {
+				book, _ = strconv.Atoi(match[1])
+			}
+			if match := verseAnchor.FindStringSubmatch(attr(tag, "id")); match != nil {
+				chapter, _ = strconv.Atoi(match[1])
+				verse, _ = strconv.Atoi(match[2])
+				texts[verse] = &strings.Builder{}
+			}
+			classes := strings.Fields(attr(tag, "class"))
+			if tag.Data == "p" && slices.Contains(classes, "sw") {
+				verse = 0
+				texts[verse] = &strings.Builder{}
+			}
+			skip := tag.Data == "sup" || tag.Data == "a" && strings.HasPrefix(attr(tag, "href"), "#footnote") ||
+				slices.ContainsFunc(classes, func(c string) bool { return slices.Contains(notVerse, c) })
+			if skip {
+				skipping++
+			}
+			skipped = append(skipped, skip)
+			if tag.Data == "p" {
+				paragraphs++
+			}
+		case html.EndTagToken:
+			if len(skipped) == 0 {
+				continue
+			}
+			if skipped[len(skipped)-1] {
+				skipping--
+			}
+			skipped = skipped[:len(skipped)-1]
+			if tag, _ := z.TagName(); string(tag) == "p" {
+				paragraphs--
+				// Lines of poetry are paragraphs of their own
+				if verse >= 0 {
+					texts[verse].WriteString(" ")
+				}
+			}
+		case html.TextToken:
+			if verse >= 0 && paragraphs > 0 && skipping == 0 {
+				texts[verse].Write(z.Text())
+			}
+		}
+	}
+}
+
+var spaces = regexp.MustCompile(`[ \t\r\n]+`)
 
 // readParagraphs reads the text of all elements with a data-pid, which is
 // the paragraph ID JW Library uses. Paragraph numbers and footnote markers

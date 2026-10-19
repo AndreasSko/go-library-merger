@@ -33,8 +33,8 @@ library-merger merge <left-backup> <right-backup> <merged-backup>
 
 If a conflict occurs while merging, the tool will ask for directions: should it
 choose the left version or the right one. For that, it shows you the actual
-entries. For conflicting markings in publications, it also shows the sentences
-with the marked text highlighted. To do so, it downloads the EPUB of the
+entries. For conflicting markings in publications and the Bible, it also shows
+the sentences with the marked text highlighted. To do so, it downloads the EPUB of the
 publication from jw.org once and keeps only its text in your cache directory.
 If you are not sure what to do, press `?` for help. 
 

@@ -1,6 +1,6 @@
 module github.com/AndreasSko/go-library-merger
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.7
@@ -10,9 +10,10 @@ require (
 	github.com/buger/goterm v1.0.4
 	github.com/cavaliercoder/grab v1.0.1-0.20201108051000-98a5bfe305ec
 	github.com/codeclysm/extract/v3 v3.1.1
+	github.com/codeclysm/extract/v4 v4.0.2
 	github.com/davecgh/go-spew v1.1.1
 	github.com/jedib0t/go-pretty v4.3.0+incompatible
-	github.com/klauspost/compress v1.18.6
+	github.com/klauspost/compress v1.20.3
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/mitchellh/go-wordwrap v1.0.1
@@ -21,7 +22,7 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.1
 	golang.org/x/mobile v0.0.0-20260508232728-bebd421c7fa8
 	golang.org/x/net v0.54.0
 	golang.org/x/sync v0.20.0
@@ -51,10 +52,10 @@ require (
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
-	github.com/ulikunitz/xz v0.5.15 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	github.com/ulikunitz/xz v0.5.17 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/mod v0.36.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect

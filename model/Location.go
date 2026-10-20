@@ -89,6 +89,12 @@ func (m *Location) Equals(m2 Model) bool {
 	return false
 }
 
+// MepsLanguageSymbol returns the language symbol that jw.org uses for the
+// given MEPS language ID, or "" if it is unknown.
+func MepsLanguageSymbol(id int) string {
+	return mepsLanguageSymbols[int32(id)]
+}
+
 // RelatedEntries returns entries that are related to this one
 func (m *Location) RelatedEntries(db *Database) Related {
 	// We don't need it for now

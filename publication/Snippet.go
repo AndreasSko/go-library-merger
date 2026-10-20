@@ -1,0 +1,613 @@
+package publication
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"golang.org/x/net/html"
+	"golang.org/x/sync/singleflight"
+
+	"github.com/AndreasSko/go-library-merger/model"
+)
+
+// MediaLinksURL is the URL to the jw.org API that lists the download links of
+// a publication
+var MediaLinksURL = "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS"
+
+// errNoEPUB tells that jw.org has no EPUB of a publication, like for the
+// Study Bible or old issues
+var errNoEPUB = errors.New("no EPUB found")
+
+// client limits the time of a request, so a stalled download cannot block
+// a conflict view
+var client = &http.Client{Timeout: 2 * time.Minute}
+
+// Snippet is the text of a paragraph, split around the tokens of a marking
+type Snippet struct {
+	Before string `json:"before"`
+	Marked string `json:"marked"`
+	After  string `json:"after"`
+	// Number is the paragraph number shown in the publication, or 0 if it
+	// has none
+	Number int `json:"number,omitempty"`
+	// Heading is the subheading the paragraph belongs to
+	Heading string `json:"heading,omitempty"`
+	// Verse is the number of a Bible verse, or 0 for a paragraph
+	Verse int `json:"verse,omitempty"`
+}
+
+// paragraph is the text of a paragraph and where it is in its document
+type paragraph struct {
+	Text    string `json:"text"`
+	Number  int    `json:"number,omitempty"`
+	Heading string `json:"heading,omitempty"`
+}
+
+// documents maps a document ID to its paragraphs. A Bible chapter is a
+// document of its verses, see bibleChapter.
+type documents map[int64]map[int]paragraph
+
+// bibleChapter returns the document ID of a Bible chapter. The MEPS document
+// IDs of a Bible are its books, so chapters get IDs of their own.
+func bibleChapter(book int, chapter int) int64 {
+	return int64(book*1000 + chapter)
+}
+
+// source is the publication with the text of a marking, and the document
+// in it
+type source struct {
+	keySymbol      string
+	lang           string
+	issueTagNumber int
+	document       int64
+	// blockType is the type of the blocks of a marking that are in document
+	blockType int
+}
+
+// sourceOf returns the source of the text of a marking. It returns false if
+// the marking has no text that can be looked up.
+func sourceOf(location *model.Location, blockRanges []*model.BlockRange) (source, bool) {
+	if location == nil || !location.MepsLanguage.Valid {
+		return source{}, false
+	}
+	src := source{
+		keySymbol:      location.KeySymbol.String,
+		lang:           model.MepsLanguageSymbol(int(location.MepsLanguage.Int32)),
+		issueTagNumber: location.IssueTagNumber,
+	}
+	switch {
+	case location.BookNumber.Valid && location.ChapterNumber.Valid:
+		// jw.org has no EPUB of the Study Bible, but the regular edition has
+		// the same text
+		if src.keySymbol == "nwtsty" {
+			src.keySymbol = "nwt"
+		}
+		src.document = bibleChapter(int(location.BookNumber.Int32), int(location.ChapterNumber.Int32))
+		// Block type 2 is a Bible verse
+		src.blockType = 2
+	case location.DocumentID.Valid:
+		src.document = location.DocumentID.Int64
+		// Block type 1 is a paragraph of a publication
+		src.blockType = 1
+	default:
+		return source{}, false
+	}
+	hasBlock := slices.ContainsFunc(blockRanges, func(br *model.BlockRange) bool { return br.BlockType == src.blockType })
+	if !hasBlock || src.lang == "" || !keySymbolPattern.MatchString(src.keySymbol) {
+		return source{}, false
+	}
+	return src, true
+}
+
+var keySymbolPattern = regexp.MustCompile(`^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$`)
+
+// A token is a word or a single other character, like a punctuation mark. A
+// single character between two words keeps them together, so "36:17" and
+// "Jehovah’s" are one token each. Spaces separate tokens, including no-break
+// and zero-width ones.
+var token = func() *regexp.Regexp {
+	word := `[\p{L}\p{N}\p{M}]+`
+	other := `[^\p{L}\p{N}\p{M}\s\p{Z}\p{Cf}]`
+	return regexp.MustCompile(word + `(?:` + other + word + `)*|` + other)
+}()
+
+// MarkingSnippets returns the text of the paragraphs or Bible verses that a
+// marking covers. Those that are not available are left out, and so are all
+// of them if jw.org has no EPUB of the publication. The text comes from the
+// EPUB of the publication on jw.org. Only the text is kept in cacheDir, so
+// each publication is downloaded once. While it downloads,
+// progress, if not nil, is told how many bytes are downloaded out of total,
+// which is -1 if unknown.
+func MarkingSnippets(ctx context.Context, cacheDir string, location *model.Location, blockRanges []*model.BlockRange, progress func(downloaded int64, total int64)) ([]Snippet, error) {
+	src, ok := sourceOf(location, blockRanges)
+	if !ok {
+		return nil, nil
+	}
+	path := cachePath(cacheDir, src)
+	docs, err, _ := lookups.Do(path, func() (any, error) {
+		return lookupDocuments(ctx, path, src, progress)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var snippets []Snippet
+	for _, br := range blockRanges {
+		if br.BlockType != src.blockType || !br.StartToken.Valid || !br.EndToken.Valid {
+			continue
+		}
+		p := docs.(documents)[src.document][br.Identifier]
+		if snippet, ok := markTokens(p.Text, int(br.StartToken.Int32), int(br.EndToken.Int32)); ok {
+			snippet.Number, snippet.Heading = p.Number, p.Heading
+			if src.blockType == 2 {
+				snippet.Verse = br.Identifier
+			}
+			snippets = append(snippets, snippet)
+		}
+	}
+	return snippets, nil
+}
+
+// NeedsDownload reports whether MarkingSnippets has to download the
+// publication of a marking first, because its text is not in cacheDir yet.
+func NeedsDownload(cacheDir string, location *model.Location, blockRanges []*model.BlockRange) bool {
+	src, ok := sourceOf(location, blockRanges)
+	if !ok {
+		return false
+	}
+	_, err := os.Stat(cachePath(cacheDir, src))
+	return err != nil
+}
+
+// cachePath returns the file in cacheDir with the text of the publication
+// of src
+func cachePath(cacheDir string, src source) string {
+	return filepath.Join(cacheDir, fmt.Sprintf("%s_%s_%d.json", src.keySymbol, src.lang, src.issueTagNumber))
+}
+
+// lookups makes concurrent lookups of the same publication, like for both
+// sides of a conflict, share one download
+var lookups singleflight.Group
+
+// lookupDocuments returns the documents of a publication from the cache file
+// at path, or downloads them first
+func lookupDocuments(ctx context.Context, path string, src source, progress func(int64, int64)) (documents, error) {
+	docs := documents{}
+	// A cache file that cannot be read is replaced by a new download
+	if data, err := os.ReadFile(path); err == nil && json.Unmarshal(data, &docs) == nil {
+		return docs, nil
+	}
+
+	cacheDir := filepath.Dir(path)
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create cache directory: %w", err)
+	}
+	epub, err := downloadEPUB(ctx, cacheDir, src, progress)
+	switch {
+	case errors.Is(err, errNoEPUB):
+		// The empty cache file keeps the publication from being asked for
+		// again
+	case err != nil:
+		return nil, err
+	default:
+		defer func() { _ = os.Remove(epub) }()
+		if docs, err = readEPUB(epub); err != nil {
+			return nil, err
+		}
+	}
+
+	data, err := json.Marshal(docs)
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := writeTemp(cacheDir, "*.json", bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to cache publication: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return nil, fmt.Errorf("failed to cache publication: %w", err)
+	}
+	return docs, nil
+}
+
+// downloadEPUB downloads the EPUB of the publication of src into dir and
+// returns its path
+func downloadEPUB(ctx context.Context, dir string, src source, progress func(int64, int64)) (string, error) {
+	keySymbol, lang, issueTagNumber := src.keySymbol, src.lang, src.issueTagNumber
+	query := url.Values{
+		"pub":         {keySymbol},
+		"langwritten": {lang},
+		"fileformat":  {"EPUB"},
+		"output":      {"json"},
+	}
+	// The API leaves out the day of monthly issues, like 202004 for 20200400
+	if issueTagNumber%100 == 0 {
+		issueTagNumber /= 100
+	}
+	if issueTagNumber != 0 {
+		query.Set("issue", strconv.Itoa(issueTagNumber))
+	}
+	var links struct {
+		Files map[string]struct {
+			EPUB []struct {
+				File struct {
+					URL string `json:"url"`
+				} `json:"file"`
+			} `json:"EPUB"`
+		} `json:"files"`
+	}
+	resp, err := get(ctx, MediaLinksURL+"?"+query.Encode())
+	// The API answers 404 for a publication without downloads and 400 for an
+	// unknown one
+	var status statusError
+	if errors.As(err, &status) && (status == http.StatusNotFound || status == http.StatusBadRequest) {
+		return "", fmt.Errorf("%w for publication %s", errNoEPUB, keySymbol)
+	} else if err != nil {
+		return "", err
+	}
+	err = json.NewDecoder(resp.Body).Decode(&links)
+	if err = errors.Join(err, resp.Body.Close()); err != nil {
+		return "", fmt.Errorf("failed to read links of publication %s: %w", keySymbol, err)
+	}
+	files := links.Files[lang].EPUB
+	if len(files) == 0 {
+		return "", fmt.Errorf("%w for publication %s", errNoEPUB, keySymbol)
+	}
+
+	epub, err := get(ctx, files[0].File.URL)
+	if err != nil {
+		return "", err
+	}
+	var body io.Reader = epub.Body
+	if progress != nil {
+		body = &progressReader{r: epub.Body, total: epub.ContentLength, progress: progress}
+	}
+	path, err := writeTemp(dir, "*.epub", body)
+	if err = errors.Join(err, epub.Body.Close()); err != nil {
+		if path != "" {
+			_ = os.Remove(path)
+		}
+		return "", fmt.Errorf("failed to download EPUB: %w", err)
+	}
+	return path, nil
+}
+
+// writeTemp writes r to a new temporary file in dir and returns its path
+func writeTemp(dir string, pattern string, r io.Reader) (string, error) {
+	f, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return "", err
+	}
+	_, err = io.Copy(f, r)
+	if err = errors.Join(err, f.Close()); err != nil {
+		_ = os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+// progressReader tells progress how much of r is read, at most every 100 ms
+type progressReader struct {
+	r        io.Reader
+	read     int64
+	total    int64
+	reported time.Time
+	progress func(int64, int64)
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	p.read += int64(n)
+	if err == io.EOF || time.Since(p.reported) > 100*time.Millisecond {
+		p.reported = time.Now()
+		p.progress(p.read, p.total)
+	}
+	return n, err
+}
+
+func get(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to request %s: %w", url, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Join(fmt.Errorf("request to %s failed: %w", url, statusError(resp.StatusCode)), resp.Body.Close())
+	}
+	return resp, nil
+}
+
+// statusError is the HTTP status code of a failed request
+type statusError int
+
+func (s statusError) Error() string {
+	return fmt.Sprintf("status %d %s", int(s), http.StatusText(int(s)))
+}
+
+var (
+	documentFile = regexp.MustCompile(`^OEBPS/(\d+)\.xhtml$`)
+	// A Bible chapter can also be in a file like 1001061148-split20.xhtml
+	chapterFile = regexp.MustCompile(`^OEBPS/[\w-]+\.xhtml$`)
+)
+
+// readEPUB reads the paragraphs of all documents in an EPUB, and the verses
+// of all Bible chapters. Each document is a file named after its MEPS
+// document ID.
+func readEPUB(path string) (docs documents, resultErr error) {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open EPUB: %w", err)
+	}
+	defer func() { resultErr = errors.Join(resultErr, r.Close()) }()
+
+	docs = documents{}
+	for _, f := range r.File {
+		if !chapterFile.MatchString(f.Name) {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("failed to open %s: %w", f.Name, err)
+		}
+		data, err := io.ReadAll(rc)
+		if err = errors.Join(err, rc.Close()); err != nil {
+			return nil, fmt.Errorf("failed to read %s: %w", f.Name, err)
+		}
+
+		if bytes.Contains(data, []byte("bibleversenav")) {
+			book, chapter, verses, err := readVerses(bytes.NewReader(data))
+			if err != nil {
+				return nil, fmt.Errorf("failed to read %s: %w", f.Name, err)
+			}
+			if book > 0 && chapter > 0 {
+				docs[bibleChapter(book, chapter)] = verses
+				continue
+			}
+		}
+		match := documentFile.FindStringSubmatch(f.Name)
+		if match == nil {
+			continue
+		}
+		id, err := strconv.ParseInt(match[1], 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		if docs[id], err = readParagraphs(bytes.NewReader(data)); err != nil {
+			return nil, fmt.Errorf("failed to read %s: %w", f.Name, err)
+		}
+	}
+	return docs, nil
+}
+
+var (
+	verseNav    = regexp.MustCompile(`^bibleversenav(\d+)_\d+\.xhtml$`)
+	verseAnchor = regexp.MustCompile(`^chapter(\d+)_verse(\d+)$`)
+	// Elements of these classes are not part of a verse, like a letter
+	// heading of Psalm 119
+	notVerse = []string{"w_navigation", "groupFootnote", "w_ch", "ss", "sd"}
+)
+
+// readVerses reads the verses of a Bible chapter. Its book comes from the
+// link to the verse list of the chapter, like bibleversenav44_20.xhtml. A verse starts at an anchor like
+// chapter20_verse35 and ends at the next one. The superscription of a psalm
+// is verse 0, like on wol.jw.org. Verse and chapter numbers and
+// footnote markers are left out of the text, as JW Library does not count
+// them as tokens. It returns 0 for book and chapter if r is not a chapter.
+func readVerses(r io.Reader) (book int, chapter int, verses map[int]paragraph, err error) {
+	z := html.NewTokenizer(r)
+	texts := map[int]*strings.Builder{}
+	verse := -1
+	paragraphs := 0
+	var skipped []bool // per open element
+	skipping := 0
+	for {
+		switch z.Next() {
+		case html.ErrorToken:
+			if z.Err() != io.EOF {
+				return 0, 0, nil, z.Err()
+			}
+			verses = map[int]paragraph{}
+			for v, text := range texts {
+				verses[v] = paragraph{Text: strings.TrimSpace(spaces.ReplaceAllString(strings.ReplaceAll(text.String(), "\u00ad", ""), " "))}
+			}
+			return book, chapter, verses, nil
+		case html.StartTagToken:
+			tag := z.Token()
+			if match := verseNav.FindStringSubmatch(attr(tag, "href")); match != nil {
+				book, _ = strconv.Atoi(match[1])
+			}
+			if match := verseAnchor.FindStringSubmatch(attr(tag, "id")); match != nil {
+				chapter, _ = strconv.Atoi(match[1])
+				verse, _ = strconv.Atoi(match[2])
+				texts[verse] = &strings.Builder{}
+			}
+			classes := strings.Fields(attr(tag, "class"))
+			if tag.Data == "p" && slices.Contains(classes, "sw") {
+				verse = 0
+				texts[verse] = &strings.Builder{}
+			}
+			skip := tag.Data == "sup" || tag.Data == "a" && strings.HasPrefix(attr(tag, "href"), "#footnote") ||
+				slices.ContainsFunc(classes, func(c string) bool { return slices.Contains(notVerse, c) })
+			if skip {
+				skipping++
+			}
+			skipped = append(skipped, skip)
+			if tag.Data == "p" {
+				paragraphs++
+			}
+		case html.EndTagToken:
+			if len(skipped) == 0 {
+				continue
+			}
+			if skipped[len(skipped)-1] {
+				skipping--
+			}
+			skipped = skipped[:len(skipped)-1]
+			if tag, _ := z.TagName(); string(tag) == "p" {
+				paragraphs--
+				// Lines of poetry are paragraphs of their own
+				if verse >= 0 {
+					texts[verse].WriteString(" ")
+				}
+			}
+		case html.TextToken:
+			if verse >= 0 && paragraphs > 0 && skipping == 0 {
+				texts[verse].Write(z.Text())
+			}
+		}
+	}
+}
+
+var spaces = regexp.MustCompile(`[ \t\r\n]+`)
+
+// readParagraphs reads the text of all elements with a data-pid, which is
+// the paragraph ID JW Library uses. Paragraph numbers and footnote markers
+// are left out of the text, as JW Library does not count them as tokens.
+func readParagraphs(r io.Reader) (map[int]paragraph, error) {
+	paragraphs := map[int]paragraph{}
+	z := html.NewTokenizer(r)
+	pid := -1
+	var text strings.Builder
+	var current paragraph
+	isHeading := false
+	heading := ""
+	var skipped []bool // per open element inside the paragraph
+	skipping := 0
+	for {
+		switch z.Next() {
+		case html.ErrorToken:
+			if z.Err() == io.EOF {
+				return paragraphs, nil
+			}
+			return nil, z.Err()
+		case html.StartTagToken:
+			tag := z.Token()
+			if pid < 0 {
+				id, err := strconv.Atoi(attr(tag, "data-pid"))
+				if err != nil {
+					continue
+				}
+				pid = id
+				text.Reset()
+				// h1 is the title of the document, the others are subheadings
+				isHeading = slices.Contains([]string{"h2", "h3", "h4", "h5", "h6"}, tag.Data)
+				current = paragraph{}
+				if !isHeading {
+					current.Heading = heading
+				}
+			}
+			if number, err := strconv.Atoi(attr(tag, "data-pnum")); err == nil {
+				current.Number = number
+			}
+			skip := tag.Data == "sup" || tag.Data == "a" && strings.HasPrefix(attr(tag, "href"), "#footnote")
+			if skip {
+				skipping++
+			}
+			skipped = append(skipped, skip)
+		case html.EndTagToken:
+			if pid < 0 {
+				continue
+			}
+			if skipped[len(skipped)-1] {
+				skipping--
+			}
+			skipped = skipped[:len(skipped)-1]
+			if len(skipped) == 0 {
+				// Drop soft hyphens, so they do not split words into tokens
+				current.Text = strings.TrimSpace(strings.ReplaceAll(text.String(), "\u00ad", ""))
+				paragraphs[pid] = current
+				if isHeading {
+					heading = current.Text
+				}
+				pid = -1
+			}
+		case html.TextToken:
+			if pid >= 0 && skipping == 0 {
+				text.Write(z.Text())
+			}
+		}
+	}
+}
+
+func attr(t html.Token, key string) string {
+	for _, a := range t.Attr {
+		if a.Key == key {
+			return a.Val
+		}
+	}
+	return ""
+}
+
+// markTokens splits text around the tokens from start to end. Like in JW
+// Library, the first token has the index 0. It returns false if the tokens
+// are not part of the text.
+func markTokens(text string, start int, end int) (Snippet, bool) {
+	tokens := token.FindAllStringIndex(text, -1)
+	if start < 0 || start > end || end >= len(tokens) {
+		return Snippet{}, false
+	}
+	from, to := tokens[start][0], tokens[end][1]
+	return Snippet{Before: text[:from], Marked: text[from:to], After: text[to:]}, true
+}
+
+// maxContext is the number of characters that are kept at most before and
+// after the marked text
+const maxContext = 80
+
+// sentenceEnd matches the end of a sentence and the space after it. It needs
+// a word of at least two letters or a closing bracket before the punctuation
+// mark, so abbreviations like "C. T. Russell" or "z. B." do not end one, and
+// a capital letter or an opening quote after it, so references like
+// "Joh. 4:3" do not either.
+var sentenceEnd = regexp.MustCompile(`(?:\p{L}{2}|\))[.!?]+[”“"’'»)\]]*(\s+)[\p{Lu}„“"‘«(]`)
+
+// Shorten keeps only the sentences of a snippet that contain the marked text.
+// Context that is still longer than maxContext is cut at a word and marked
+// with "…".
+func Shorten(s Snippet) Snippet {
+	text := s.Before + s.Marked + s.After
+	from, to := len(s.Before), len(s.Before)+len(s.Marked)
+	start, end := 0, len(text)
+	for _, m := range sentenceEnd.FindAllStringSubmatchIndex(text, -1) {
+		spaceStart, spaceEnd := m[2], m[3]
+		if spaceEnd <= from {
+			start = spaceEnd
+		}
+		if spaceStart >= to && end == len(text) {
+			end = spaceStart
+		}
+	}
+
+	before, after := text[start:from], text[to:end]
+	if r := []rune(before); len(r) > maxContext {
+		before = string(r[len(r)-maxContext:])
+		before = "…" + before[strings.IndexByte(before, ' ')+1:]
+	}
+	if r := []rune(after); len(r) > maxContext {
+		after = string(r[:maxContext])
+		if i := strings.LastIndexByte(after, ' '); i > 0 {
+			after = after[:i]
+		}
+		after = strings.TrimRight(after, ",;:–— ") + "…"
+	}
+	s.Before, s.After = before, after
+	return s
+}

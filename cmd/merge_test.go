@@ -2263,3 +2263,13 @@ func Test_mergeFailureReleasesImports(t *testing.T) {
 		})
 	}
 }
+
+func Test_markingHighlight(t *testing.T) {
+	t.Setenv("COLORTERM", "truecolor")
+	assert.Equal(t, "\x1b[48;2;41;181;245;30m", markingHighlight(3).EscapeSeq())
+
+	t.Setenv("COLORTERM", "")
+	assert.Equal(t, "\x1b[48;5;39;30m", markingHighlight(3).EscapeSeq())
+
+	assert.Equal(t, "\x1b[47;30m", markingHighlight(0).EscapeSeq())
+}

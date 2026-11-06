@@ -1509,6 +1509,21 @@ func Test_needsNwtstyMigration(t *testing.T) {
 	}
 }
 
+func Test_needsNwtstyMigration_missingLocation(t *testing.T) {
+	left := &model.Database{
+		Location: []*model.Location{nil},
+		UserMark: []*model.UserMark{nil, {UserMarkID: 1, LocationID: 1, UserMarkGUID: "1"}},
+	}
+	right := &model.Database{
+		Location: []*model.Location{nil, {LocationID: 1, KeySymbol: sql.NullString{String: "nwtsty", Valid: true}}},
+		UserMark: []*model.UserMark{nil, {UserMarkID: 1, LocationID: 1, UserMarkGUID: "1"}},
+	}
+
+	assert.NotPanics(t, func() {
+		assert.Empty(t, needsNwtstyMigration(left, right))
+	})
+}
+
 func Test_moveToNwtsty(t *testing.T) {
 	type args struct {
 		langs map[int]MergeSide

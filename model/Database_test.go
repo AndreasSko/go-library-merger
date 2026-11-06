@@ -48,6 +48,7 @@ func TestDatabase_Fetch(t *testing.T) {
 	assert.Equal(t, nil, db.FetchFromTable("Location", 2))
 	assert.Equal(t, nil, db.FetchFromTable("Location", 4))
 	assert.Equal(t, nil, db.FetchFromTable("Location", 400))
+	assert.Equal(t, nil, db.FetchFromTable("Location", -1))
 	assert.Equal(t, "#1", db.FetchFromTable("Bookmark", 1).(*Bookmark).Title)
 	assert.PanicsWithValue(t, "Table notexists does not exist in Database", func() {
 		db.FetchFromTable("notexists", 2)
@@ -284,6 +285,28 @@ func Test_getSliceCapacity(t *testing.T) {
 	res, err = getSliceCapacity(db, &InputField{})
 	assert.NoError(t, err)
 	assert.Equal(t, 6, res)
+
+	// A corrupt ID would otherwise lead to a huge allocation
+	rows = mock.NewRows([]string{"TagId"}).AddRow(maxID)
+	mock.ExpectQuery("SELECT TagId FROM Tag ORDER BY TagId DESC LIMIT 1").WillReturnRows(rows)
+	_, err = getSliceCapacity(db, &Tag{})
+	assert.ErrorContains(t, err, "out of the supported range")
+}
+
+func Test_fetchFromSQLite_negativeID(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("testdata", userDataFilename))
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), userDataFilename)
+	require.NoError(t, os.WriteFile(path, src, 0o644))
+
+	sqlite, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, sqlite.Close()) })
+	_, err = sqlite.Exec("UPDATE Bookmark SET BookmarkId = -1 WHERE BookmarkId = (SELECT MIN(BookmarkId) FROM Bookmark)")
+	require.NoError(t, err)
+
+	_, err = fetchFromSQLite(sqlite, &Bookmark{})
+	assert.ErrorContains(t, err, "invalid ID -1 in table Bookmark")
 }
 
 func Test_fetchFromSQLite(t *testing.T) {

@@ -79,7 +79,7 @@ func (db *Database) FetchFromTable(tableName string, id int) Model {
 		panic(fmt.Sprintf("Table %s does not exist in Database", tableName))
 	}
 
-	if id >= table.Len() {
+	if id < 0 || id >= table.Len() {
 		return nil
 	}
 	if table.Index(id).IsNil() {
@@ -575,6 +575,9 @@ func fetchFromSQLite(sqlite *sql.DB, modelType Model) ([]Model, error) {
 			i++
 			continue
 		}
+		if mn.ID() < 0 || mn.ID() >= len(result) {
+			return nil, fmt.Errorf("invalid ID %d in table %s", mn.ID(), modelType.tableName())
+		}
 		result[mn.ID()] = mn
 		i++
 	}
@@ -644,6 +647,8 @@ func getTableEntryCount(sqlite *sql.DB, tableName string) (int, error) {
 	return count, nil
 }
 
+const maxID = 10_000_000
+
 // getSliceCapacity determines the needed capacity for a slice from a table
 // by looking at the highest ID in the DB. If the table does not have a ID
 // column, it will simply count the number of entries.
@@ -666,6 +671,12 @@ func getSliceCapacity(sqlite *sql.DB, modelType Model) (int, error) {
 		if err := row.Scan(&capacity); err != nil {
 			return 0, err
 		}
+	}
+
+	// The slice is indexed by ID, so a single corrupt row with a huge ID would
+	// otherwise allocate gigabytes and crash the app.
+	if capacity < 0 || capacity >= maxID {
+		return 0, fmt.Errorf("ID %d in table %s is out of the supported range", capacity, modelType.tableName())
 	}
 
 	// Index in DB starts with 1, so 0 is always nil

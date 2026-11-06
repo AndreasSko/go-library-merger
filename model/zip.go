@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,23 +10,28 @@ import (
 )
 
 // https://golangcode.com/create-zip-files-in-go/
-func zipFiles(filename string, files []string) error {
+func zipFiles(filename string, files []string) (err error) {
 	newZipFile, err := os.Create(filename)
 	if err != nil {
 		return err
 	}
-	defer newZipFile.Close()
+	defer func() {
+		err = errors.Join(err, newZipFile.Close())
+		if err != nil {
+			// Don't leave a broken backup behind that could be restored later
+			_ = os.Remove(filename)
+		}
+	}()
 
+	// Close writes the ZIP's central directory, so its error must not be
+	// ignored: without it the file is unreadable.
 	zipWriter := zip.NewWriter(newZipFile)
-	defer zipWriter.Close()
-
-	// Add files to zip
 	for _, file := range files {
-		if err = addFileToZip(zipWriter, file); err != nil {
-			return err
+		if err := addFileToZip(zipWriter, file); err != nil {
+			return errors.Join(err, zipWriter.Close())
 		}
 	}
-	return nil
+	return zipWriter.Close()
 }
 
 func addFileToZip(zipWriter *zip.Writer, filename string) error {

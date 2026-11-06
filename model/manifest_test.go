@@ -143,6 +143,10 @@ func Test_generateManifest(t *testing.T) {
 
 	_, err = generateManifest("test", "nonexistent.db")
 	assert.Error(t, err)
+
+	// Reading a directory fails after opening it succeeds
+	_, err = generateManifest("test", t.TempDir())
+	assert.ErrorContains(t, err, "Error while reading SQLite file")
 }
 
 func Test_exportManifest(t *testing.T) {

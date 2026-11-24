@@ -228,3 +228,53 @@ func countPlaylistItems(db *model.Database) int {
 	}
 	return count
 }
+
+// A backup can have the same media several times. The merge keeps it once,
+// and every playlist item must still point to it.
+func TestPlaylistDuplicateMediaInOneBackup(t *testing.T) {
+	want := []playlisttest.Playlist{{Name: "Duplicates", Items: []string{"photo", "video"}}}
+	blob := []byte("test media: photo.bin")
+	query := fmt.Sprintf("UPDATE IndependentMedia SET Hash='%x' WHERE FilePath='video.bin'", sha256.Sum256(blob))
+	duplicate := playlisttest.Rewrite(t, playlisttest.Build(t, want), query, func(blobs map[string][]byte) {
+		blobs["video.bin"] = blob
+	})
+	// The first copy's file is missing, so the second copy must be kept.
+	firstMissing := playlisttest.Rewrite(t, duplicate, "", func(blobs map[string][]byte) {
+		delete(blobs, "photo.bin")
+	})
+	output, err := os.Create(filepath.Join(t.TempDir(), "output.log"))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, output.Close()) }()
+	stdio := terminal.Stdio{In: os.Stdin, Out: output, Err: output}
+
+	// Another playlist in the other backup gives the duplicates' playlist a
+	// new tag ID in the merged backup.
+	other := []playlisttest.Playlist{{Name: "Other", Items: []string{"X"}}}
+	withOther := append(append([]playlisttest.Playlist{}, other...), want...)
+	for _, tc := range []struct {
+		left, right string
+		want        []playlisttest.Playlist
+	}{
+		{duplicate, playlisttest.Build(t, nil), want}, {playlisttest.Build(t, nil), duplicate, want},
+		{duplicate, duplicate, want}, {firstMissing, playlisttest.Build(t, nil), want},
+		{playlisttest.Build(t, other), duplicate, withOther},
+	} {
+		dest := filepath.Join(t.TempDir(), "merged.jwlibrary")
+		require.NoError(t, merge(tc.left, tc.right, dest, stdio))
+		playlisttest.Verify(t, dest, tc.want)
+		db := &model.Database{TempDir: t.TempDir()}
+		require.NoError(t, db.ImportJWLBackup(dest))
+		thumbnails := map[string]bool{}
+		for _, m := range db.PlaylistItemIndependentMediaMap {
+			if m == nil {
+				continue
+			}
+			media := db.IndependentMedia[m.IndependentMediaID]
+			require.False(t, media.FileMissing())
+			require.Equal(t, fmt.Sprintf("%x", sha256.Sum256(blob)), media.Hash)
+			thumbnails[db.PlaylistItem[m.PlaylistItemID].ThumbnailFilePath.String] = true
+		}
+		require.Equal(t, map[string]bool{"photo.jpg": true, "video.jpg": true}, thumbnails)
+		require.NoError(t, db.Close())
+	}
+}

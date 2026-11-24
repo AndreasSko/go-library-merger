@@ -25,6 +25,52 @@ func MergeIndependentMedia(left []*model.IndependentMedia, right []*model.Indepe
 	return model.IndependentMedia{}.MakeSlice(result), changes, err
 }
 
+// dedupeIndependentMedia keeps one row for media that a backup has several
+// times with the same content. The merge keeps only one row per content
+// within a backup too, but it would move only that row's references, so
+// playlist items of the other rows would point to the wrong media. The rows
+// of the other items are moved to the kept row here, which prefers a row
+// whose file is included. Only rows with the same key are merged, so the
+// keys and repeat indexes of the playlist items stay as they are.
+func dedupeIndependentMedia(db *model.Database) {
+	kept := map[string]*model.IndependentMedia{}
+	for _, im := range db.IndependentMedia {
+		if im == nil {
+			continue
+		}
+		if k, ok := kept[im.UniqueKey()]; !ok || (k.FileMissing() && !im.FileMissing()) {
+			kept[im.UniqueKey()] = im
+		}
+	}
+	ids, paths := map[int]int{}, map[string]string{}
+	for i, im := range db.IndependentMedia {
+		if im == nil || kept[im.UniqueKey()] == im {
+			continue
+		}
+		ids[im.IndependentMediaID] = kept[im.UniqueKey()].IndependentMediaID
+		paths[im.FilePath] = kept[im.UniqueKey()].FilePath
+		db.IndependentMedia[i] = nil
+	}
+	if len(ids) == 0 {
+		return
+	}
+	for _, m := range db.PlaylistItemIndependentMediaMap {
+		if m == nil {
+			continue
+		}
+		if id, ok := ids[m.IndependentMediaID]; ok {
+			m.IndependentMediaID = id
+		}
+	}
+	for _, item := range db.PlaylistItem {
+		if item != nil && item.ThumbnailFilePath.Valid {
+			if path, ok := paths[item.ThumbnailFilePath.String]; ok {
+				item.ThumbnailFilePath.String = path
+			}
+		}
+	}
+}
+
 // remapIndependentMediaPaths renames media whose filename is already used by
 // other media, for example IMG_0001.jpg from two different phones. The media
 // with the lowest hash keeps its name, so the result does not depend on the

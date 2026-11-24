@@ -20,6 +20,11 @@ func (db *Database) PlaylistThumbnail(playlistItemID int) ([]byte, error) {
 	if db.WorkingDir == "" {
 		return nil, fmt.Errorf("missing playlist thumbnail %q", item.ThumbnailFilePath.String)
 	}
+	for _, im := range db.IndependentMedia {
+		if im != nil && im.FilePath == item.ThumbnailFilePath.String && im.FileMissing() {
+			return append([]byte(nil), defaultThumbnailFile...), nil
+		}
+	}
 	return os.ReadFile(filepath.Join(db.WorkingDir, item.ThumbnailFilePath.String))
 }
 

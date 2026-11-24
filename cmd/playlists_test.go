@@ -160,3 +160,71 @@ func TestPlaylistCLIRequiredDecisionEOFAndInvalidResolverDoNotExport(t *testing.
 		})
 	}
 }
+
+// JW Library sometimes leaves media files out of a backup. Such a backup
+// must still merge, and gets the files back if the other backup has them.
+func TestPlaylistMissingMediaFiles(t *testing.T) {
+	want := []playlisttest.Playlist{{Name: "Photos", Items: []string{"photo"}}}
+	full := playlisttest.Build(t, want)
+	missing := playlisttest.Rewrite(t, full, "", func(blobs map[string][]byte) {
+		delete(blobs, "photo.bin")
+		delete(blobs, "photo.jpg")
+	})
+	output, err := os.Create(filepath.Join(t.TempDir(), "output.log"))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, output.Close()) }()
+	stdio := terminal.Stdio{In: os.Stdin, Out: output, Err: output}
+
+	dest := filepath.Join(t.TempDir(), "merged.jwlibrary")
+	require.NoError(t, merge(missing, missing, dest, stdio))
+	db := &model.Database{TempDir: t.TempDir()}
+	require.NoError(t, db.ImportJWLBackup(dest))
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	require.Equal(t, 1, countPlaylistItems(db))
+	media := 0
+	for _, im := range db.IndependentMedia {
+		if im != nil {
+			media++
+			require.True(t, im.FileMissing(), im.FilePath)
+		}
+	}
+	require.Equal(t, 2, media)
+
+	// JW Library writes hashes without leading zeros, which can't be
+	// converted back without the file, when the digest has a byte below 0x10.
+	query, differs := "", false
+	for _, name := range []string{"photo.bin", "photo.jpg"} {
+		digest := sha256.Sum256([]byte("test media: " + name))
+		native := ""
+		for _, value := range digest {
+			native += fmt.Sprintf("%x", value)
+		}
+		differs = differs || fmt.Sprintf("%x", digest) != native
+		query += fmt.Sprintf("UPDATE IndependentMedia SET Hash='%s' WHERE FilePath='%s';", native, name)
+	}
+	require.True(t, differs)
+	nativeFull := playlisttest.Rewrite(t, full, query, nil)
+	nativeMissing := playlisttest.Rewrite(t, missing, query, nil)
+
+	for _, inputs := range [][2]string{{missing, full}, {full, missing}, {nativeMissing, full}, {full, nativeMissing},
+		{nativeMissing, nativeFull}, {missing, nativeFull}} {
+		dest := filepath.Join(t.TempDir(), "merged.jwlibrary")
+		require.NoError(t, merge(inputs[0], inputs[1], dest, stdio))
+		playlisttest.Verify(t, dest, want)
+		db := &model.Database{TempDir: t.TempDir()}
+		require.NoError(t, db.ImportJWLBackup(dest))
+		require.Equal(t, 1, countPlaylistItems(db))
+		require.Len(t, db.IndependentMedia, 3)
+		require.NoError(t, db.Close())
+	}
+}
+
+func countPlaylistItems(db *model.Database) int {
+	count := 0
+	for _, item := range db.PlaylistItem {
+		if item != nil {
+			count++
+		}
+	}
+	return count
+}

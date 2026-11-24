@@ -151,6 +151,7 @@ func MakeModelCopy(mdl Model) Model {
 			MimeType:           mdl.MimeType,
 			Hash:               mdl.Hash,
 			contentHash:        mdl.contentHash,
+			fileMissing:        mdl.fileMissing,
 		}
 	case *PlaylistItem:
 		mdlCopy = &PlaylistItem{

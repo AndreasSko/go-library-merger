@@ -75,12 +75,13 @@ func remapIndependentMediaPaths(media []*model.IndependentMedia) (map[string]str
 
 // CopyMergedIndependentMedia copies the files of the merged media from the
 // backups into dst. Files are looked up by their content, because another
-// backup can use the same filename for different content.
+// backup can use the same filename for different content. Media whose file
+// is missing in both backups is left without a file.
 func CopyMergedIndependentMedia(ims []*model.IndependentMedia, left, right *model.Database, dst string) error {
 	sources := map[string]string{}
 	for _, db := range []*model.Database{left, right} {
 		for _, im := range db.IndependentMedia {
-			if im != nil {
+			if im != nil && !im.FileMissing() {
 				sources[im.UniqueKey()] = filepath.Join(db.WorkingDir, im.FilePath)
 			}
 		}
@@ -90,12 +91,16 @@ func CopyMergedIndependentMedia(ims []*model.IndependentMedia, left, right *mode
 			continue
 		}
 		source, ok := sources[im.UniqueKey()]
+		if !ok && im.FileMissing() {
+			continue
+		}
 		if !ok {
 			return fmt.Errorf("missing source media %q", im.FilePath)
 		}
 		if err := copyFile(source, filepath.Join(dst, im.FilePath)); err != nil {
 			return err
 		}
+		im.SetFileMissing(false)
 	}
 	return nil
 }

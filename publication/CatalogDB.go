@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cavaliercoder/grab"
@@ -69,6 +71,8 @@ func CatalogSize(path string) int64 {
 
 // DownloadCatalog downloads the newest catalog.db and saves it at dst.
 // The prgrs channel informs about the progress of the download.
+// A failed download is tried again a few times, since the connection to the
+// CDN sometimes drops in the middle of it.
 func DownloadCatalog(ctx context.Context, prgrs chan Progress, dst string) error {
 	if prgrs != nil {
 		defer close(prgrs)
@@ -81,6 +85,38 @@ func DownloadCatalog(ctx context.Context, prgrs chan Progress, dst string) error
 	}
 	defer os.RemoveAll(tmp)
 
+	progress := Progress{}
+	for attempt := 1; ; attempt++ {
+		err = downloadCatalog(ctx, prgrs, &progress, tmp, dst)
+		if err == nil || ctx.Err() != nil || attempt == downloadAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Duration(attempt) * RetryDelay):
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+
+	progress.Done = true
+	select {
+	case prgrs <- progress:
+	default:
+	}
+	return err
+}
+
+const downloadAttempts = 3
+
+// RetryDelay is how long to wait before the first retry of a failed
+// download. Each further retry waits longer.
+var RetryDelay = 2 * time.Second
+
+// downloadCatalog makes one attempt. progress keeps the last progress, so
+// the caller can send it as done.
+func downloadCatalog(ctx context.Context, prgrs chan Progress, progress *Progress, tmp, dst string) error {
 	// Fetch manifest, so we can generate the catalogURL
 	mfst, err := fetchManifest(ctx)
 	if err != nil {
@@ -88,22 +124,28 @@ func DownloadCatalog(ctx context.Context, prgrs chan Progress, dst string) error
 	}
 	url := fmt.Sprintf(CatalogURL, mfst.Current)
 
+	// A retry resumes a partial download, which must be of the same version.
+	if mfst.Current == "" || !filepath.IsLocal(mfst.Current) || strings.ContainsAny(mfst.Current, "/\\") {
+		return fmt.Errorf("invalid catalog version %q", mfst.Current)
+	}
+	dir := filepath.Join(tmp, mfst.Current)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return errors.Wrap(err, "Error while creating temporary directory")
+	}
 	client := grab.NewClient()
-	req, err := grab.NewRequest(tmp, url)
+	req, err := grab.NewRequest(dir, url)
 	if err != nil {
 		return errors.Wrapf(err, "Error while creating request for %s", url)
 	}
 	req = req.WithContext(ctx)
 	resp := client.Do(req)
 
-	progress := Progress{}
-
 	// Send a progress over the prgrsChan every 250 milliseconds
 	t := time.NewTicker(250 * time.Millisecond)
 	defer t.Stop()
 Loop:
 	for {
-		progress := Progress{
+		*progress = Progress{
 			Size:           resp.Size(),
 			BytesComplete:  resp.BytesComplete(),
 			BytesPerSecond: resp.BytesPerSecond(),
@@ -114,7 +156,7 @@ Loop:
 		select {
 		case <-t.C:
 			select {
-			case prgrs <- progress:
+			case prgrs <- *progress:
 				continue
 			default:
 				continue
@@ -124,11 +166,6 @@ Loop:
 		}
 	}
 	if err := resp.Err(); err != nil {
-		progress.Done = true
-		select {
-		case prgrs <- progress:
-		default:
-		}
 		return errors.Wrapf(err, "Error while downloading catalog from %s", url)
 	}
 
@@ -140,13 +177,9 @@ Loop:
 	buffer := bytes.NewBuffer(data)
 	err = extract.Gz(ctx, buffer, dst, nil)
 	if err != nil {
+		// Otherwise the next attempt could take the broken file as complete.
+		_ = os.Remove(resp.Filename)
 		return errors.Wrap(err, "Error while extracting catalog.db")
-	}
-
-	progress.Done = true
-	select {
-	case prgrs <- progress:
-	default:
 	}
 
 	return nil

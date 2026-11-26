@@ -34,8 +34,11 @@ func TestDownloadCatalog(t *testing.T) {
 	}))
 	defer server.Close()
 
-	oldManifest, oldCatalog := publication.ManifestURL, publication.CatalogURL
-	t.Cleanup(func() { publication.ManifestURL, publication.CatalogURL = oldManifest, oldCatalog })
+	oldManifest, oldCatalog, oldDelay := publication.ManifestURL, publication.CatalogURL, publication.RetryDelay
+	t.Cleanup(func() {
+		publication.ManifestURL, publication.CatalogURL, publication.RetryDelay = oldManifest, oldCatalog, oldDelay
+	})
+	publication.RetryDelay = time.Millisecond
 	publication.ManifestURL = server.URL + "/catalogs/publications/v4/manifest.json"
 	publication.CatalogURL = server.URL + "/catalogs/publications/v4/%s/catalog.db.gz"
 

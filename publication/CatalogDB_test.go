@@ -1,6 +1,7 @@
 package publication
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -106,6 +107,98 @@ func Test_DownloadCatalog(t *testing.T) {
 		assert.NotEqual(t, Progress{}, progress)
 	}
 	<-done
+
+	// A dropped connection is retried
+	RetryDelay = time.Millisecond
+	t.Cleanup(func() { RetryDelay = 2 * time.Second })
+	requests := 0
+	flaky := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if strings.Contains(req.URL.String(), "manifest.json") {
+			requests++
+			if requests == 1 {
+				conn, _, err := rw.(http.Hijacker).Hijack()
+				assert.NoError(t, err)
+				assert.NoError(t, conn.Close())
+				return
+			}
+		}
+		server.Config.Handler.ServeHTTP(rw, req)
+	}))
+	defer flaky.Close()
+	ManifestURL = flaky.URL + "/catalogs/publications/v4/manifest.json"
+	CatalogURL = flaky.URL + "/catalogs/publications/v4/%s/catalog.db.gz"
+	assert.NoError(t, DownloadCatalog(context.Background(), nil, filepath.Join(tmp, "catalog.db")))
+	assert.Equal(t, 2, requests)
+
+	// A download that breaks off is resumed, unless the catalog version
+	// changed in the meantime
+	for _, versionChange := range []bool{false, true} {
+		broken, ranges := false, []string{}
+		interrupted := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			if strings.Contains(req.URL.String(), "manifest.json") {
+				version := "164a1c4b-4dbd-4909-8f88-8e7a18c562f2"
+				if versionChange && broken {
+					version = "next"
+				}
+				_, err := fmt.Fprintf(rw, `{"version": 1, "current": %q}`, version)
+				assert.NoError(t, err)
+				return
+			}
+			data, err := os.ReadFile(filepath.Join("testdata", "catalog.db.gz"))
+			assert.NoError(t, err)
+			if req.Method == http.MethodGet && !broken {
+				broken = true
+				rw.Header().Set("Content-Length", fmt.Sprint(len(data)))
+				_, err := rw.Write(data[:len(data)/2])
+				assert.NoError(t, err)
+				rw.(http.Flusher).Flush()
+				panic(http.ErrAbortHandler)
+			}
+			if req.Method == http.MethodGet {
+				ranges = append(ranges, req.Header.Get("Range"))
+			}
+			http.ServeContent(rw, req, "catalog.db.gz", time.Time{}, bytes.NewReader(data))
+		}))
+		ManifestURL = interrupted.URL + "/catalogs/publications/v4/manifest.json"
+		CatalogURL = interrupted.URL + "/catalogs/publications/v4/%s/catalog.db.gz"
+		assert.NoError(t, DownloadCatalog(context.Background(), nil, filepath.Join(tmp, "catalog.db")))
+		interrupted.Close()
+		assert.True(t, broken)
+		if assert.Len(t, ranges, 1, "versionChange=%t", versionChange) {
+			if versionChange {
+				assert.Empty(t, ranges[0])
+			} else {
+				assert.NotEmpty(t, ranges[0])
+			}
+		}
+		assert.Equal(t, "7ebe98db8b5edd1ab901b7d6b43647fd35790b2a332c43739efdf9383d590651",
+			hashFile(filepath.Join(tmp, "catalog.db")))
+	}
+
+	// A broken download of the right size is downloaded again
+	downloads := 0
+	corrupt := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if strings.Contains(req.URL.String(), "manifest.json") {
+			server.Config.Handler.ServeHTTP(rw, req)
+			return
+		}
+		data, err := os.ReadFile(filepath.Join("testdata", "catalog.db.gz"))
+		assert.NoError(t, err)
+		if req.Method == http.MethodGet {
+			downloads++
+			if downloads == 1 {
+				data = make([]byte, len(data))
+			}
+		}
+		http.ServeContent(rw, req, "catalog.db.gz", time.Time{}, bytes.NewReader(data))
+	}))
+	defer corrupt.Close()
+	ManifestURL = corrupt.URL + "/catalogs/publications/v4/manifest.json"
+	CatalogURL = corrupt.URL + "/catalogs/publications/v4/%s/catalog.db.gz"
+	assert.NoError(t, DownloadCatalog(context.Background(), nil, filepath.Join(tmp, "catalog.db")))
+	assert.Equal(t, 2, downloads)
+	assert.Equal(t, "7ebe98db8b5edd1ab901b7d6b43647fd35790b2a332c43739efdf9383d590651",
+		hashFile(filepath.Join(tmp, "catalog.db")))
 
 	// Check if timeout works
 	ctx, cancle := context.WithTimeout(context.Background(), time.Duration(1))

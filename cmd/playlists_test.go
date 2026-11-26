@@ -160,3 +160,121 @@ func TestPlaylistCLIRequiredDecisionEOFAndInvalidResolverDoNotExport(t *testing.
 		})
 	}
 }
+
+// JW Library sometimes leaves media files out of a backup. Such a backup
+// must still merge, and gets the files back if the other backup has them.
+func TestPlaylistMissingMediaFiles(t *testing.T) {
+	want := []playlisttest.Playlist{{Name: "Photos", Items: []string{"photo"}}}
+	full := playlisttest.Build(t, want)
+	missing := playlisttest.Rewrite(t, full, "", func(blobs map[string][]byte) {
+		delete(blobs, "photo.bin")
+		delete(blobs, "photo.jpg")
+	})
+	output, err := os.Create(filepath.Join(t.TempDir(), "output.log"))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, output.Close()) }()
+	stdio := terminal.Stdio{In: os.Stdin, Out: output, Err: output}
+
+	dest := filepath.Join(t.TempDir(), "merged.jwlibrary")
+	require.NoError(t, merge(missing, missing, dest, stdio))
+	db := &model.Database{TempDir: t.TempDir()}
+	require.NoError(t, db.ImportJWLBackup(dest))
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	require.Equal(t, 1, countPlaylistItems(db))
+	media := 0
+	for _, im := range db.IndependentMedia {
+		if im != nil {
+			media++
+			require.True(t, im.FileMissing(), im.FilePath)
+		}
+	}
+	require.Equal(t, 2, media)
+
+	// JW Library writes hashes without leading zeros, which can't be
+	// converted back without the file, when the digest has a byte below 0x10.
+	query, differs := "", false
+	for _, name := range []string{"photo.bin", "photo.jpg"} {
+		digest := sha256.Sum256([]byte("test media: " + name))
+		native := ""
+		for _, value := range digest {
+			native += fmt.Sprintf("%x", value)
+		}
+		differs = differs || fmt.Sprintf("%x", digest) != native
+		query += fmt.Sprintf("UPDATE IndependentMedia SET Hash='%s' WHERE FilePath='%s';", native, name)
+	}
+	require.True(t, differs)
+	nativeFull := playlisttest.Rewrite(t, full, query, nil)
+	nativeMissing := playlisttest.Rewrite(t, missing, query, nil)
+
+	for _, inputs := range [][2]string{{missing, full}, {full, missing}, {nativeMissing, full}, {full, nativeMissing},
+		{nativeMissing, nativeFull}, {missing, nativeFull}} {
+		dest := filepath.Join(t.TempDir(), "merged.jwlibrary")
+		require.NoError(t, merge(inputs[0], inputs[1], dest, stdio))
+		playlisttest.Verify(t, dest, want)
+		db := &model.Database{TempDir: t.TempDir()}
+		require.NoError(t, db.ImportJWLBackup(dest))
+		require.Equal(t, 1, countPlaylistItems(db))
+		require.Len(t, db.IndependentMedia, 3)
+		require.NoError(t, db.Close())
+	}
+}
+
+func countPlaylistItems(db *model.Database) int {
+	count := 0
+	for _, item := range db.PlaylistItem {
+		if item != nil {
+			count++
+		}
+	}
+	return count
+}
+
+// A backup can have the same media several times. The merge keeps it once,
+// and every playlist item must still point to it.
+func TestPlaylistDuplicateMediaInOneBackup(t *testing.T) {
+	want := []playlisttest.Playlist{{Name: "Duplicates", Items: []string{"photo", "video"}}}
+	blob := []byte("test media: photo.bin")
+	query := fmt.Sprintf("UPDATE IndependentMedia SET Hash='%x' WHERE FilePath='video.bin'", sha256.Sum256(blob))
+	duplicate := playlisttest.Rewrite(t, playlisttest.Build(t, want), query, func(blobs map[string][]byte) {
+		blobs["video.bin"] = blob
+	})
+	// The first copy's file is missing, so the second copy must be kept.
+	firstMissing := playlisttest.Rewrite(t, duplicate, "", func(blobs map[string][]byte) {
+		delete(blobs, "photo.bin")
+	})
+	output, err := os.Create(filepath.Join(t.TempDir(), "output.log"))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, output.Close()) }()
+	stdio := terminal.Stdio{In: os.Stdin, Out: output, Err: output}
+
+	// Another playlist in the other backup gives the duplicates' playlist a
+	// new tag ID in the merged backup.
+	other := []playlisttest.Playlist{{Name: "Other", Items: []string{"X"}}}
+	withOther := append(append([]playlisttest.Playlist{}, other...), want...)
+	for _, tc := range []struct {
+		left, right string
+		want        []playlisttest.Playlist
+	}{
+		{duplicate, playlisttest.Build(t, nil), want}, {playlisttest.Build(t, nil), duplicate, want},
+		{duplicate, duplicate, want}, {firstMissing, playlisttest.Build(t, nil), want},
+		{playlisttest.Build(t, other), duplicate, withOther},
+	} {
+		dest := filepath.Join(t.TempDir(), "merged.jwlibrary")
+		require.NoError(t, merge(tc.left, tc.right, dest, stdio))
+		playlisttest.Verify(t, dest, tc.want)
+		db := &model.Database{TempDir: t.TempDir()}
+		require.NoError(t, db.ImportJWLBackup(dest))
+		thumbnails := map[string]bool{}
+		for _, m := range db.PlaylistItemIndependentMediaMap {
+			if m == nil {
+				continue
+			}
+			media := db.IndependentMedia[m.IndependentMediaID]
+			require.False(t, media.FileMissing())
+			require.Equal(t, fmt.Sprintf("%x", sha256.Sum256(blob)), media.Hash)
+			thumbnails[db.PlaylistItem[m.PlaylistItemID].ThumbnailFilePath.String] = true
+		}
+		require.Equal(t, map[string]bool{"photo.jpg": true, "video.jpg": true}, thumbnails)
+		require.NoError(t, db.Close())
+	}
+}

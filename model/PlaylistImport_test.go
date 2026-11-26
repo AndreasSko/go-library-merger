@@ -99,20 +99,32 @@ func TestPlaylistMalformedRelationshipsReject(t *testing.T) {
 	}
 }
 
-func TestPlaylistInvalidPayloadsReject(t *testing.T) {
-	for _, kind := range []string{"missing", "corrupt"} {
-		t.Run(kind, func(t *testing.T) {
-			p := playlisttest.Rewrite(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Portable", Items: []string{"photo"}}}), "", func(blobs map[string][]byte) {
-				if kind == "missing" {
-					delete(blobs, "photo.bin")
-				} else {
-					blobs["photo.bin"] = []byte("corrupted payload")
-				}
-			})
-			db := &model.Database{TempDir: t.TempDir()}
-			require.Error(t, db.ImportJWLBackup(p))
-		})
+func TestPlaylistMissingMediaFileImports(t *testing.T) {
+	p := playlisttest.Rewrite(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Portable", Items: []string{"photo"}}}), "", func(blobs map[string][]byte) {
+		delete(blobs, "photo.bin")
+		delete(blobs, "photo.jpg")
+	})
+	db := &model.Database{TempDir: t.TempDir()}
+	require.NoError(t, db.ImportJWLBackup(p))
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	for _, im := range db.IndependentMedia {
+		if im != nil {
+			require.True(t, im.FileMissing(), im.FilePath)
+		}
 	}
+	blob, err := db.PlaylistThumbnail(1)
+	require.NoError(t, err)
+	def, err := (&model.Database{PlaylistItem: []*model.PlaylistItem{nil, {}}}).PlaylistThumbnail(1)
+	require.NoError(t, err)
+	require.Equal(t, def, blob)
+}
+
+func TestPlaylistInvalidPayloadsReject(t *testing.T) {
+	p := playlisttest.Rewrite(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Portable", Items: []string{"photo"}}}), "", func(blobs map[string][]byte) {
+		blobs["photo.bin"] = []byte("corrupted payload")
+	})
+	db := &model.Database{TempDir: t.TempDir()}
+	require.ErrorContains(t, db.ImportJWLBackup(p), "hash mismatch")
 	for _, path := range []string{"../outside.bin", "/outside.bin", "nested/file.bin", ".", ".."} {
 		t.Run(fmt.Sprintf("path=%q", path), func(t *testing.T) {
 			p := playlisttest.Rewrite(t, playlisttest.Build(t, []playlisttest.Playlist{{Name: "Portable", Items: []string{"photo"}}}), "UPDATE IndependentMedia SET FilePath='"+path+"' WHERE FilePath='photo.bin'", nil)

@@ -75,8 +75,14 @@ func TestDatabaseWrapper_ImportJWLBackup(t *testing.T) {
 			dbw:      &DatabaseWrapper{},
 			filename: filepath.Join(testdataDir, "backup_withPlaylist.jwlibrary"),
 			side:     "leftSide",
-			wantErr: func(tt assert.TestingT, err error, i ...interface{}) bool {
-				return assert.ErrorContains(tt, err, "validateIndependentMedia")
+			wantErr:  assert.NoError,
+			assertions: func(t *testing.T, dbWrapper *DatabaseWrapper) {
+				assert.Equal(t, 3, countSliceEntries(dbWrapper.left.IndependentMedia))
+				for _, im := range dbWrapper.left.IndependentMedia {
+					if im != nil {
+						assert.True(t, im.FileMissing(), im.FilePath)
+					}
+				}
 			},
 		},
 		{

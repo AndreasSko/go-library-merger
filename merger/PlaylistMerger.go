@@ -12,6 +12,9 @@ import (
 // be called again with more conflict solutions. The caller must Close merged.
 func MergePlaylists(left, right, merged *model.Database, solutions map[string]MergeSolution) error {
 	l, r := model.MakeDatabaseCopy(left), model.MakeDatabaseCopy(right)
+	model.MatchMissingMedia(l, r)
+	dedupeIndependentMedia(l)
+	dedupeIndependentMedia(r)
 	model.AlignPlaylistRepeats(l, r)
 	media, mediaIDs, err := MergeIndependentMedia(l.IndependentMedia, r.IndependentMedia)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	stdErrors "errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -693,6 +694,12 @@ func validateIndependentMedia(dir string, independentMedia []*IndependentMedia) 
 			return fmt.Errorf("invalid independent media path %q: %w", im.FilePath, err)
 		}
 		file, err := os.Open(filepath.Join(dir, im.FilePath))
+		if stdErrors.Is(err, fs.ErrNotExist) {
+			// JW Library sometimes leaves the file out of the backup. Keep the
+			// row, so the playlist stays as JW Library wrote it.
+			im.fileMissing = true
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -704,13 +711,7 @@ func validateIndependentMedia(dir string, independentMedia []*IndependentMedia) 
 		}
 		digest := hasher.Sum(nil)
 		canonical := fmt.Sprintf("%x", digest)
-		// JW Library writes each byte as hex without a leading zero ("a" instead
-		// of "0a"). Other tools write the standard format.
-		var native strings.Builder
-		for _, value := range digest {
-			fmt.Fprintf(&native, "%x", value)
-		}
-		if !strings.EqualFold(im.Hash, canonical) && !strings.EqualFold(im.Hash, native.String()) {
+		if !strings.EqualFold(im.Hash, canonical) && !strings.EqualFold(im.Hash, nativeHash(digest)) {
 			return fmt.Errorf("independent media hash mismatch for %q", im.FilePath)
 		}
 		im.contentHash = canonical
@@ -759,15 +760,15 @@ func (db *Database) ExportJWLBackup(filename string) error {
 
 	// Store files in .jwlibrary (zip)-file
 	files := []string{dbPath, manifestPath, defaultThumbnailPath}
+	included := map[string]bool{defaultThumbnailFilename: true}
 	for _, im := range db.IndependentMedia {
 		if im == nil {
 			continue
 		}
-		files = append(files, filepath.Join(db.WorkingDir, im.FilePath))
-	}
-	included := map[string]bool{defaultThumbnailFilename: true}
-	for _, file := range files {
-		included[filepath.Base(file)] = true
+		included[im.FilePath] = true
+		if !im.FileMissing() {
+			files = append(files, filepath.Join(db.WorkingDir, im.FilePath))
+		}
 	}
 	for _, item := range db.PlaylistItem {
 		if item != nil && item.ThumbnailFilePath.Valid && item.ThumbnailFilePath.String != "" && !included[item.ThumbnailFilePath.String] {

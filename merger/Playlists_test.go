@@ -59,6 +59,27 @@ func TestCopyMediaUsesMatchingContent(t *testing.T) {
 	require.NoError(t, CopyMergedIndependentMedia(left.IndependentMedia, left, &model.Database{}, t.TempDir()))
 }
 
+func TestCopyMediaRecoversMissingFile(t *testing.T) {
+	left, right := &model.Database{WorkingDir: t.TempDir()}, &model.Database{WorkingDir: t.TempDir()}
+	missing := &model.IndependentMedia{FilePath: "foo", Hash: "A"}
+	missing.SetFileMissing(true)
+	left.IndependentMedia = []*model.IndependentMedia{missing}
+	right.IndependentMedia = []*model.IndependentMedia{{FilePath: "bar", Hash: "A"}}
+	require.NoError(t, os.WriteFile(filepath.Join(right.WorkingDir, "bar"), []byte("A"), 0600))
+	out := t.TempDir()
+	require.NoError(t, CopyMergedIndependentMedia(left.IndependentMedia, left, right, out))
+	blob, err := os.ReadFile(filepath.Join(out, "foo"))
+	require.NoError(t, err)
+	require.Equal(t, "A", string(blob))
+	require.False(t, missing.FileMissing())
+
+	// Missing in both backups: nothing to copy, and it stays missing.
+	other := &model.IndependentMedia{FilePath: "baz", Hash: "B"}
+	other.SetFileMissing(true)
+	require.NoError(t, CopyMergedIndependentMedia([]*model.IndependentMedia{other}, left, right, t.TempDir()))
+	require.True(t, other.FileMissing())
+}
+
 func TestRemapAndCopyMediaPathCollision(t *testing.T) {
 	for _, reverse := range []bool{false, true} {
 		t.Run(fmt.Sprintf("reverse=%t", reverse), func(t *testing.T) {
